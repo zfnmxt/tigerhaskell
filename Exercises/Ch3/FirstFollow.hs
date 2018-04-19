@@ -217,8 +217,8 @@ buildFollowB l m r = do
   case nullableSymbols (nullableSet env) m of
     True -> do
       followL <- getFollowSet l
-      followR <- getFollowSet r
-      putFollowSet l $ followL `Set.union` followR
+      firstR <- getFirstSet r
+      putFollowSet l $ followL `Set.union` firstR
     False -> return ()
 
 buildFollow :: Rule -> State Env ()
