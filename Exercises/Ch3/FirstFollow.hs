@@ -1,6 +1,6 @@
 {- Implements Algorithm 3.13
    Grammar rules must be specified as "X -> XacY"
-   where uppercase letters are nonterminals and lowercase are terminals.
+   where uppercase letters are nonterminals anything is a terminal.
    Each line can only contain one rule.
 -}
 
@@ -11,10 +11,10 @@ import qualified Data.Set        as Set
 import Control.Monad
 import Control.Monad.Trans.State as S
 import Text.ParserCombinators.ReadP
-import Data.Char (isUpper, isLower, isAlpha)
+import Data.Char (isUpper, isPrint, isAlpha)
 import System.IO
 import Data.Maybe (fromMaybe)
-import Data.List  (subsequences, tails, inits)
+import Data.List  (subsequences, tails, inits, intersperse)
 
 newtype Terminal    = Terminal Char deriving (Show, Eq, Ord)
 newtype NonTerminal = NonTerminal Char deriving (Show, Eq, Ord)
@@ -39,7 +39,7 @@ testRuleMap = rulesToRuleMap testRules
 
 parseSymbol :: ReadP Symbol
 parseSymbol = do
-  symbol <- satisfy isAlpha
+  symbol <- satisfy isPrint
   if isUpper symbol
     then return $ Right (NonTerminal symbol)
     else return $ Left (Terminal symbol)
@@ -275,4 +275,21 @@ result ruleMap = fst $ runState (compute ruleMap) (initState ruleMap)
 main = do
   ruleMap <- getRuleMap
   let res = result ruleMap
-  putStrLn $ show $ followMap res
+  putStrLn $ prettyPrint res
+
+printFirst :: Map.Map Symbol FirstSet -> String
+printFirst firstMap = concat $ map f $ Map.toList firstMap
+  where f (k, firstSet) = show (removeSymConst k) ++ ": "
+                          ++ show (map removeTermCons (Set.toList firstSet))
+                          ++ "\n"
+        removeSymConst (Left (Terminal x)) = x
+        removeSymConst (Right (NonTerminal x)) = x
+        removeTermCons (Terminal x) = x
+
+prettyPrint :: Env -> String
+prettyPrint env = "Nullable: " ++ nullablePretty ++ "\n"
+                  ++ "FIRST:\n" ++ printFirst (firstMap env)
+                  ++ "FOLLOW:\n" ++ printFirst (followMap env)
+  where nullableTerms = map (\(NonTerminal x) -> x) $ Set.toList
+                        (nullableSet env)
+        nullablePretty = intersperse ' ' nullableTerms
