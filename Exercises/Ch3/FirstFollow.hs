@@ -14,6 +14,7 @@ import Text.ParserCombinators.ReadP
 import Data.Char (isUpper, isLower, isAlpha)
 import System.IO
 import Data.Maybe (fromMaybe)
+import Data.List  (subsequences, tails, inits)
 
 newtype Terminal    = Terminal Char deriving (Show, Eq, Ord)
 newtype NonTerminal = NonTerminal Char deriving (Show, Eq, Ord)
@@ -137,38 +138,105 @@ unsafeMLookup k m =
     Nothing -> error "Unsafe lookup"
     Just x -> x
 
-nullableRule :: Nullable -> Rule -> Bool
-nullableRule nullSet (Rule nTerm ss) =
-  case Set.member nTerm nullSet of
-    True  -> True
+nullableSymbols :: Nullable -> [Symbol] -> Bool
+nullableSymbols nullSet ss =
+  case containsTerminal ss of
+    True  -> False
     False -> foldl f True ss
     where f _ (Left _)        = False
-          f acc (Right nTerm') = acc && Set.member nTerm' nullSet
+          f acc (Right nTerm) = acc && Set.member nTerm nullSet
+          containsTerminal (Left _ : _)    = True
+          containsTerminal (Right _ : ss') = containsTerminal ss'
+          containsTerminal []              = False
 
-buildNullable :: Rule -> State Env () -- Env -> Rule -> Env
+nullableRule :: Nullable -> Rule -> Bool
+nullableRule nullSet (Rule nTerm ss)
+  | Set.member nTerm nullSet = True
+  | otherwise                = nullableSymbols nullSet ss
+
+buildNullable :: Rule -> State Env ()
 buildNullable r@(Rule nTerm _) = do
   env <- S.get
   if (nullableRule (nullableSet env) r)
   then put $ env { nullableSet = Set.insert nTerm (nullableSet env) }
   else return ()
 
-buildFirst :: Rule -> State Env () -- Env -> Rule -> Env
-buildFirst (Rule _ []) = return ()
-buildFirst r@(Rule nTerm (s:ss)) = do
+buildFirstA :: NonTerminal -> [Symbol] -> Symbol -> State Env ()
+buildFirstA x ss r = do
   env <- S.get
-  let f acc nTerm     = acc `Set.union` unsafeMLookup nTerm (firstMap env)
-  let initFirstSet    = unsafeMLookup (Right nTerm) (firstMap env)
-  let firstSet        = initFirstSet `Set.union` unsafeMLookup s (firstMap env)
-  let g (Left _)      = False
-  let g (Right nTerm) = Set.member nTerm (nullableSet env)
-  let nullableSymbols = takeWhile g ss
-  let newFirstSet     = foldl f firstSet nullableSymbols
-  put $ env { firstMap = Map.insert (Right nTerm) newFirstSet (firstMap env) }
+  case nullableSymbols (nullableSet env) ss of
+    True -> do
+      firstX <- getFirstSet (Right x)
+      firstR <- getFirstSet r
+      putFirstSet (Right x) $ firstX `Set.union` firstR
+    False -> return ()
+
+buildFirst:: Rule -> State Env ()
+buildFirst (Rule _ []) = return ()
+buildFirst r@(Rule x ss) = do
+  env <- S.get
+  let f [r]     = buildFirstA x [] r
+      f ss      = buildFirstA x (init ss) (last ss)
+  mapM_ f $ filter (\s -> length s > 0) (inits ss)
+
+getFollowSet :: Symbol -> State Env FollowSet
+getFollowSet s = do
+  env <- S.get
+  return $ case Map.lookup s (followMap env) of
+             Just set -> set
+             Nothing  -> Set.empty
+
+putFollowSet :: Symbol -> FollowSet -> State Env ()
+putFollowSet s fSet = do
+  env <- S.get
+  S.put $ env { followMap = Map.insert s fSet (followMap env) }
+
+getFirstSet :: Symbol -> State Env FirstSet
+getFirstSet s = do
+  env <- S.get
+  return $ unsafeMLookup s (firstMap env)
+
+putFirstSet :: Symbol -> FirstSet -> State Env ()
+putFirstSet s fSet =  do
+  env <- S.get
+  S.put $ env { firstMap = Map.insert s fSet (firstMap env) }
+
+buildFollowA :: NonTerminal -> [Symbol] -> State Env ()
+buildFollowA x (l:t) = do
+  env <- S.get
+  case nullableSymbols (nullableSet env) t of
+    True -> do
+      followL <- getFollowSet l
+      followX <- getFollowSet (Right x)
+      putFollowSet l $ followL `Set.union` followX
+    False -> return ()
+
+buildFollowB :: Symbol -> [Symbol] -> Symbol -> State Env ()
+buildFollowB l m r = do
+  env <- S.get
+  case nullableSymbols (nullableSet env) m of
+    True -> do
+      followL <- getFollowSet l
+      followR <- getFollowSet r
+      putFollowSet l $ followL `Set.union` followR
+    False -> return ()
+
+buildFollow :: Rule -> State Env ()
+buildFollow (Rule _ []) = return ()
+buildFollow r@(Rule nTerm ss) = do
+  let followASyms = filter (\l -> length l > 0) $ tails ss
+      buildA = map (buildFollowA nTerm) followASyms
+      f (l:[r]) = (l, [], r)
+      f xs = (head xs, init (tail xs), last xs)
+      followBSyms = map f $ filter (\l -> length l > 1) (subsequences ss)
+      buildB = map (\(l,m,r) -> buildFollowB l m r) followBSyms
+  sequence_ $ buildA ++ buildB
 
 buildRule :: Rule -> State Env ()
 buildRule r = do
   buildNullable r
   buildFirst r
+  buildFollow r
 
 buildNonTerminal :: NonTerminal -> State Env ()
 buildNonTerminal nTerm = do
@@ -207,4 +275,4 @@ result ruleMap = fst $ runState (compute ruleMap) (initState ruleMap)
 main = do
   ruleMap <- getRuleMap
   let res = result ruleMap
-  putStrLn $ show $ firstMap res
+  putStrLn $ show $ followMap res
