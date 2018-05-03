@@ -1,6 +1,28 @@
 -- Inspired by ReadP
 
-module DumbParser where
+module DumbParser (
+    Parser
+  , satisfy
+  , failed
+  , char
+  , string
+  , option
+  , choice
+  , between
+  , munch
+  , munch1
+  , (<|>)
+  , many
+  , some
+  , empty
+  , whitespace
+  , eof
+  , num
+  , chainr1
+  , chainl1
+  , token
+  , sepBy1
+) where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
 import Data.Char (isSpace, isNumber)
