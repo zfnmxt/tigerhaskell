@@ -1,7 +1,9 @@
+-- Inspired by ReadP
+
 module DumbParser where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
-import Data.Char (isSpace)
+import Data.Char (isSpace, isNumber)
 import Control.Monad (void)
 
 newtype Parser a = Parser { runParser :: String -> [(a, String)] }
@@ -59,14 +61,17 @@ between open close p = do
 
 munch :: (Char -> Bool) -> Parser String
 munch p = do
-  (c:cs) <- remaining
-  if p c
-    then do
-      getNextChar
-      rest <- munch p
-      return $ c:rest
-    else
-      return ""
+  cs <- remaining
+  case cs of
+    ""     -> return ""
+    (c:_) ->
+      if p c
+        then do
+        getNextChar
+        rest <- munch p
+        return $ c:rest
+      else
+        return ""
 
 munch1 :: (Char -> Bool) -> Parser String
 munch1 p = do
@@ -82,10 +87,31 @@ eof = do
   s <- remaining
   if s == [] then return () else failed
 
-chainr :: Parser a -> Parser (a -> a -> a) -> a -> Parser a
-chainr p op x = undefined
+num :: Parser Int
+num = do
+  s <- munch1 (isNumber)
+  return $ read s
 
-chainl :: Parser a -> Parser (a -> a -> a) -> a -> Parser a
-chainl p op x = undefined
+chainr1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainr1 p op =  p <|> do
+  l <- p
+  op' <- op
+  r <- chainr1 p op
+  return $ l `op'` r
 
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p >>= f
+  where
+    f l = return l <|> do
+      op' <- op
+      r   <- p
+      f (l `op'` r)
 
+token :: Parser a -> Parser a
+token p = whitespace >> p
+
+sepBy1 :: Parser a -> Parser sep -> Parser [a]
+sepBy1 p sep = do
+  first <- p
+  rest  <- many (sep >> p)
+  return $ first:rest

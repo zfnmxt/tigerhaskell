@@ -29,7 +29,7 @@ data Env            = Env { rules       :: Map.Map NonTerminal [Rule]
                           , followMap   :: Map.Map Symbol FollowSet
                           } deriving (Show, Eq)
 
-fileName = "grammar.txt"
+fileName = "grammar2.txt"
 
 testRules = [Rule (NonTerminal 'X') [Left (Terminal 'a')]
             ,Rule (NonTerminal 'X') []
@@ -39,7 +39,7 @@ testRuleMap = rulesToRuleMap testRules
 
 parseSymbol :: ReadP Symbol
 parseSymbol = do
-  symbol <- satisfy isPrint
+  symbol <- satisfy isAlpha
   if isUpper symbol
     then return $ Right (NonTerminal symbol)
     else return $ Left (Terminal symbol)
