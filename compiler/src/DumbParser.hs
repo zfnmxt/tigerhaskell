@@ -1,6 +1,8 @@
 -- Inspired by ReadP
 module DumbParser (
     Parser
+  , Error
+  , Env (..)
   , satisfy
   , reject
   , char
@@ -10,24 +12,30 @@ module DumbParser (
   , between
   , munch
   , munch1
+  , void
   , (<|>)
   , many
+  , throw
   , some
   , empty
   , whitespace
   , eof
   , num
+  , digit
+  , letter
   , chainr1
   , chainl1
   , token
   , sepBy1
+  , runParser
 ) where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
-import Data.Char (isSpace, isNumber)
+import Data.Char (isSpace, isNumber, isDigit)
+import Data.List (isPrefixOf)
 import Control.Monad (void)
 
-data Env = Env { linenum :: Int, colnum :: Int }
+data Env = Env { linenum :: Int, colnum :: Int } deriving (Show)
 type Error = [(Env, String)]
 
 newtype Parser e a = Parser { runParser :: Env -> String -> Either e (a, (Env, String)) }
@@ -93,7 +101,7 @@ option :: Monoid e => Parser e a -> a -> Parser e a
 option p x = p <|> return x
 
 choice :: Monoid e => [Parser e a] -> Parser e a
-choice = foldl (<|>) empty
+choice = foldr (<|>) empty
 
 between :: Monoid e => Parser e open -> Parser e close -> Parser e a -> Parser e a
 between open close p = do
@@ -135,6 +143,12 @@ num = do
   s <- munch1 isNumber
   return $ read s
 
+digit :: Monoid e => Parser e Char
+digit = satisfy isDigit
+
+letter :: Monoid e => Parser e Char
+letter = satisfy (`elem` (['a'..'z'] ++ ['A'..'Z']))
+
 chainr1 :: Monoid e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
 chainr1 p op =  p <|> do
   l <- p
@@ -158,3 +172,18 @@ sepBy1 p sep = do
   first <- p
   rest  <- many (sep >> p)
   return $ first:rest
+
+throw :: Monoid e => Parser e ()
+throw = getNextChar >> return ()
+
+-- Kinda bad (arbitrary lookahead). Basically, never use this.`
+manyTo :: Monoid e => String -> Parser e a -> Parser e [a]
+manyTo s p = do
+  s' <- getString
+  if s `isPrefixOf` s'
+    then
+    return []
+    else do
+    next <- p
+    rest <- manyTo s p
+    return $ next:rest
