@@ -1,7 +1,7 @@
 -- Inspired by ReadP
 module DumbParser (
     Parser
-  , Error
+  , Error (..)
   , Env (..)
   , satisfy
   , reject
@@ -12,6 +12,7 @@ module DumbParser (
   , between
   , munch
   , munch1
+  , parseN
   , void
   , (<|>)
   , many
@@ -23,20 +24,26 @@ module DumbParser (
   , num
   , digit
   , letter
+  , alpha
   , chainr1
   , chainl1
   , token
   , sepBy1
   , runParser
+  , manyTo
+  , listify
 ) where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
-import Data.Char (isSpace, isNumber, isDigit)
+import Data.Char (isSpace, isNumber, isDigit, isAlpha)
 import Data.List (isPrefixOf)
 import Control.Monad (void)
 
 data Env = Env { linenum :: Int, colnum :: Int } deriving (Show)
-type Error = [(Env, String)]
+
+class Error e where
+  errEmpty :: e
+  errFail  :: Env -> e
 
 newtype Parser e a = Parser { runParser :: Env -> String -> Either e (a, (Env, String)) }
 
@@ -56,15 +63,15 @@ instance Monad (Parser e) where
     (a, (env', s')) <- p env s
     runParser (f a) env' s'
 
-instance Monoid e => Alternative (Parser e) where
-  empty = Parser $ \_ _ -> Left mempty
+instance Error e => Alternative (Parser e) where
+  empty = Parser $ \_ _ -> Left errEmpty
   (Parser p) <|> (Parser q) = Parser $ \env s ->
     case p env s of
       Right x -> Right x
       Left _  -> q env s
 
-reject :: Monoid e => Parser e a
-reject = empty
+reject :: Error e => Parser e a
+reject = Parser $ \env s -> Left $ errFail env
 
 getEnv :: Parser e Env
 getEnv = Parser $ \env s -> Right (env, (env, s))
@@ -75,10 +82,10 @@ putEnv env = Parser $ \_ s -> Right ((), (env, s))
 getString :: Parser e String
 getString = Parser $ \env s -> Right (s, (env, s))
 
-getNextChar :: Monoid e => Parser e Char
+getNextChar :: Error e => Parser e Char
 getNextChar = Parser $ \env s ->
   case s of
-    ""     -> Left mempty
+    ""     -> Left errEmpty
     (c:cs) -> Right (c, (env', cs))
       where env' = if c == '\n'
                    then
@@ -86,31 +93,31 @@ getNextChar = Parser $ \env s ->
                    else
                      env {colnum = colnum env + 1}
 
-satisfy :: Monoid e => (Char -> Bool) -> Parser e Char
+satisfy :: Error e => (Char -> Bool) -> Parser e Char
 satisfy p = do
   c <- getNextChar
   if p c then return c else reject
 
-char :: Monoid e => Char -> Parser e Char
+char :: Error e => Char -> Parser e Char
 char c = satisfy (== c)
 
-string :: Monoid e => String -> Parser e String
+string :: Error e => String -> Parser e String
 string s = mapM char s
 
-option :: Monoid e => Parser e a -> a -> Parser e a
+option :: Error e => Parser e a -> a -> Parser e a
 option p x = p <|> return x
 
-choice :: Monoid e => [Parser e a] -> Parser e a
+choice :: Error e => [Parser e a] -> Parser e a
 choice = foldr (<|>) empty
 
-between :: Monoid e => Parser e open -> Parser e close -> Parser e a -> Parser e a
+between :: Error e => Parser e open -> Parser e close -> Parser e a -> Parser e a
 between open close p = do
   open
   res <- p
   close
   return res
 
-munch :: Monoid e => (Char -> Bool) -> Parser e String
+munch :: Error e => (Char -> Bool) -> Parser e String
 munch p = do
   cs <- getString
   case cs of
@@ -124,39 +131,45 @@ munch p = do
       else
         return ""
 
-munch1 :: Monoid e => (Char -> Bool) -> Parser e String
+munch1 :: Error e => (Char -> Bool) -> Parser e String
 munch1 p = do
  c    <- satisfy p
  rest <- munch p
  return $ c:rest
 
-whitespace :: Monoid e => Parser e ()
+parseN :: Error e => Int -> Parser e a -> Parser e [a]
+parseN n p = mapM (\_ -> p) [1..n]
+
+whitespace :: Error e => Parser e ()
 whitespace = void $ munch isSpace
 
-eof :: Monoid e => Parser e ()
+eof :: Error e => Parser e ()
 eof = do
   s <- getString
   if s == [] then return () else reject
 
-num :: Monoid e => Parser e Int
+num :: Error e => Parser e Int
 num = do
   s <- munch1 isNumber
   return $ read s
 
-digit :: Monoid e => Parser e Char
+digit :: Error e => Parser e Char
 digit = satisfy isDigit
 
-letter :: Monoid e => Parser e Char
+letter :: Error e => Parser e Char
 letter = satisfy (`elem` (['a'..'z'] ++ ['A'..'Z']))
 
-chainr1 :: Monoid e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
+alpha :: Error e => Parser e Char
+alpha = satisfy isAlpha
+
+chainr1 :: Error e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
 chainr1 p op =  p <|> do
   l <- p
   op' <- op
   r <- chainr1 p op
   return $ l `op'` r
 
-chainl1 :: Monoid e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
+chainl1 :: Error e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
 chainl1 p op = p >>= f
   where
     f l = return l <|> do
@@ -164,26 +177,28 @@ chainl1 p op = p >>= f
       r   <- p
       f (l `op'` r)
 
-token :: Monoid e => Parser e a -> Parser e a
+token :: Error e => Parser e a -> Parser e a
 token p = whitespace >> p
 
-sepBy1 :: Monoid e => Parser e a -> Parser e sep -> Parser e [a]
+sepBy1 :: Error e => Parser e a -> Parser e sep -> Parser e [a]
 sepBy1 p sep = do
   first <- p
   rest  <- many (sep >> p)
   return $ first:rest
 
-throw :: Monoid e => Parser e ()
+throw :: Error e => Parser e ()
 throw = getNextChar >> return ()
 
--- Kinda bad (arbitrary lookahead). Basically, never use this.`
-manyTo :: Monoid e => String -> Parser e a -> Parser e [a]
-manyTo s p = do
+manyTo :: Error e => Parser e a -> String -> Parser e [a]
+manyTo p s = do
   s' <- getString
   if s `isPrefixOf` s'
     then
     return []
     else do
     next <- p
-    rest <- manyTo s p
+    rest <- manyTo p s
     return $ next:rest
+
+listify :: Error e => Parser e a -> Parser e [a]
+listify p = (\a -> [a]) <$> p
