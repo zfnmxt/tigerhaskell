@@ -156,6 +156,8 @@ exprP =
          , forExprP
          , breakExprP
          , letExprP
+         , assignExprP
+         , arrayExprP
          ]
 
 lValueExprP :: TigerP Expr
@@ -218,7 +220,7 @@ forExprP = do
          id <- identifierP
          token $ string ":="
          expr <- exprP
-         return $ Assign id expr
+         return $ Assign (LId id) expr
 
 breakExprP :: TigerP Expr
 breakExprP = kKeywordP "break" >> return Break
@@ -231,6 +233,34 @@ letExprP = do
   exprs <- seqExprP
   kKeywordP "end"
   return $ Let decs exprs
+
+assignExprP :: TigerP Expr
+assignExprP = do
+  lval <- lValueP
+  token $ string ":="
+  expr <- exprP
+  return $ Assign lval expr
+
+arrayExprP :: TigerP Expr
+arrayExprP = do
+  type' <- typeIdP
+  token $ char '['
+  n <- exprP
+  kKeywordP "of"
+  v <- exprP
+  return $ Array type' n v
+
+recordExprP :: TigerP Expr
+recordExprP = do
+  type' <- typeIdP
+  token $ char '{'
+  fields <- sepBy1 fieldP (char ',')
+  return $ Record type' fields
+  where fieldP = do
+          id <- identifierP
+          char '='
+          expr <- exprP
+          return $ RecordField id expr
 
 decP :: TigerP Dec
 decP =

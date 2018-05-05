@@ -47,7 +47,7 @@ data Op = Op BOp Assoc Prec
           deriving (Show)
 
 data RecordField = RecordField { rfId   :: Id
-                               , rfType :: TypeId
+                               , rfExpr :: Expr
                                } deriving (Show)
 data Expr = LExpr LValue
           | Nil
@@ -59,7 +59,7 @@ data Expr = LExpr LValue
           | NExpr Expr
           | Record TypeId [RecordField]
           | Array TypeId Expr Expr
-          | Assign Id Expr
+          | Assign LValue Expr
           | IfE Expr Expr Expr
           | If Expr Expr
           | While Expr Expr
