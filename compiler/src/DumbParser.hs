@@ -11,8 +11,6 @@ module DumbParser (
   , option
   , choice
   , between
-  , munch
-  , munch1
   , parseN
   , void
   , (<|>)
@@ -121,26 +119,6 @@ between open close p = do
   close
   return res
 
-munch :: Error e => (Char -> Bool) -> Parser e String
-munch p = do
-  cs <- getString
-  case cs of
-    ""     -> return ""
-    (c:_) ->
-      if p c
-        then do
-        getNextChar
-        rest <- munch p
-        return $ c:rest
-      else
-        return ""
-
-munch1 :: Error e => (Char -> Bool) -> Parser e String
-munch1 p = do
- c    <- satisfy p
- rest <- munch p
- return $ c:rest
-
 many1 :: Error e => Parser e a -> Parser e [a]
 many1 p = do
  first <- p
@@ -151,7 +129,7 @@ parseN :: Error e => Int -> Parser e a -> Parser e [a]
 parseN n p = mapM (\_ -> p) [1..n]
 
 whitespace :: Error e => Parser e ()
-whitespace = void $ munch isSpace
+whitespace = void $ many (satisfy isSpace)
 
 eof :: Error e => Parser e ()
 eof = do
