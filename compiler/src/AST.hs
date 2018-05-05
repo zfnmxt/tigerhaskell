@@ -38,13 +38,15 @@ data LValue = LId Id
             deriving (Show)
 
 data BOp = Plus | Sub | Mult | Div | Equal | NEqual
-         | GT | LT | GTE | LTE | And | Or
+         | Gt | Lt | GTE | LTE | And | Or
          deriving (Show)
 
 data Assoc = L | R | None deriving (Show)
 type Prec = Int
-data Op = Op BOp Assoc Prec
-          deriving (Show)
+data Op = Op { operator   :: BOp
+             , assoc      :: Assoc
+             , precedence :: Prec
+             } deriving (Show)
 
 data RecordField = RecordField { rfId   :: Id
                                , rfExpr :: Expr
@@ -55,7 +57,7 @@ data Expr = LExpr LValue
           | NoValue
           | IExpr Integer
           | SExpr String
-          | BExpr Op Expr Expr
+          | BExpr BOp Expr Expr
           | NExpr Expr
           | Record TypeId [RecordField]
           | Array TypeId Expr Expr

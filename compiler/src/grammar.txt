@@ -1,0 +1,43 @@
+
+ExprSeq  -> Expr ExprSeq'
+ExprSeq' -> ; Expr ExprSeq'
+ExprSeq' -> e
+
+Expr -> '(' ExprSeq ')'
+     -> OrExpr
+
+OrExpr  -> AndExpr OrExpr'
+
+OrExpr' -> | AndExpr OrExpr'
+        -> e
+
+AndExpr -> ComparisonExpr AndExpr'
+
+AndExpr' -> & ComparisonExpr AndExpr'
+         -> AndExpr'
+
+ComparisonExpr -> PlusSubExpr
+               -> PlusSubExpr <comparison operator> PlusSubExpr
+
+PlusSubExpr -> MultDivExpr PlusSubExpr'
+
+PlusSubExpr' -> <+/-> MultDivExpr PlusSubExpr'
+PlusSubExpr' -> e
+
+MultDivExpr  -> PrimaryExpr MultDivExpr'
+
+MultDivExpr' -> <*//> PrimaryExpr MultDivExpr'
+MultDivExpr' -> e
+
+PrimaryExpr -> IfExpr
+            -> WhileExpr
+            -> ForExpr
+            -> LetExpr
+            -> BreakExpr
+            -> BaseExpr
+
+BaseExpr -> ArrayExpr
+         -> RecordExpr
+         -> LValueExpr
+
+LetExpr -> let Dec in ExprSeq end

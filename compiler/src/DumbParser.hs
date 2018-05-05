@@ -41,7 +41,7 @@ import Data.Char (isSpace, isNumber, isDigit, isAlpha)
 import Data.List (isPrefixOf)
 import Control.Monad (void)
 
-data Env = Env { linenum :: Int, colnum :: Int } deriving (Show)
+data Env = Env { linenum :: Int, colnum :: Int} deriving (Show)
 
 class Error e where
   errEmpty :: e

@@ -28,35 +28,7 @@ comment :: TigerP ()
 comment = between (string "/*") (string "*/") body
   where body = void $ manyTo (comment <|> throw)  "*/"
 
-stringExprP :: TigerP Expr
-stringExprP = do
-  token $ char '\"'
-  strs <- many $ listify alpha <|> listify (char ' ') <|> escape
-  token $ char '\"'
-  return $ SExpr (concat strs)
-
 -- Note: doesn't support control characters
-escapeChar :: TigerP Char
-escapeChar = choice [ string "\\n" >> return '\n'
-                    , string "\\t" >> return '\t'
-                    , string "\\\""  >> return '"'
-                    , string "\\\\"  >> return '\\'
-                    ]
-
-escape :: TigerP String
-escape = do
-  choice $ [ multiline
-           , listify escapeChar
-           , ascii
-           ]
-    where ascii      = listify $ char '\\' >> chr . read <$> parseN 3 digit
-          multiline  = between (char '\\') (char '\\') whitespace >> return ""
-
-integerExprP :: TigerP Expr
-integerExprP = IExpr <$> number
-
-noVal :: TigerP Expr
-noVal = between (char '(') (char ')') $ return NoValue
 
 keywordP :: TigerP String
 keywordP = choice $ map string keywords
@@ -68,6 +40,112 @@ kKeywordP k = do
 
 typeIdP :: TigerP TypeId
 typeIdP = identifierP
+
+seqExprP :: TigerP Expr
+seqExprP = do
+  first <- exprP
+  rest  <- many1 $ char ';' >> exprP
+  return $ ExprSeq $ first:rest
+
+exprP :: TigerP Expr
+exprP = between (token (char '(')) (token (char ')')) seqExprP
+        <|> orP
+
+
+orP :: TigerP Expr
+orP = chainl1 andP (token (char '|') >> return (BExpr Or))
+
+andP :: TigerP Expr
+andP = chainl1 comparisonP (token (char '&') >> return (BExpr And))
+
+comparisonP :: TigerP Expr
+comparisonP = comparisonP' <|> plusSubP
+  where comparisonP' = do
+           l  <- plusSubP
+           op <- choice $ map (\s -> token (string s)) ["=", "<>", ">", "<", ">=", "<="]
+           r  <- plusSubP
+           case op of
+             "="  -> return $ BExpr Equal  l r
+             "<>" -> return $ BExpr NEqual l r
+             ">"  -> return $ BExpr Gt     l r
+             "<"  -> return $ BExpr Lt     l r
+             ">=" -> return $ BExpr GTE    l r
+             "<=" -> return $ BExpr LTE    l r
+
+plusSubP :: TigerP Expr
+plusSubP = plusP <|> subP
+  where plusP = chainl1 multDivP (token (char '+') >> return (BExpr Plus))
+        subP  = chainl1 multDivP (token (char '-') >> return (BExpr Sub))
+
+multDivP :: TigerP Expr
+multDivP = multP <|> divP
+  where multP = chainl1 negExprP  (token (char '*') >> return (BExpr Mult))
+        divP  = chainl1 negExprP (token (char '/') >> return (BExpr Div))
+
+negExprP :: TigerP Expr
+negExprP = (token (char '-') >> NExpr <$> primaryP )
+           <|> primaryP
+
+primaryP :: TigerP Expr
+primaryP = choice
+           [ ifExprP
+           , whileExprP
+           , forExprP
+           , letExprP
+           , breakExprP
+           , baseExprP
+           ]
+
+ifExprP :: TigerP Expr
+ifExprP = do
+  kKeywordP "if"
+  cond <- exprP
+  kKeywordP "then"
+  thenExpr <- exprP
+  let elseP = option (Just <$> (kKeywordP "else" >> exprP)) Nothing
+  elseExpr <- elseP
+  case elseExpr of
+    Nothing       -> return $ If cond thenExpr
+    Just elseExpr -> return $ IfE cond thenExpr elseExpr
+
+whileExprP :: TigerP Expr
+whileExprP = do
+  kKeywordP "while"
+  cond <- exprP
+  kKeywordP "do"
+  expr <- exprP
+  return $ While cond expr
+
+forExprP :: TigerP Expr
+forExprP = do
+  kKeywordP "for"
+  assign <- forAssignP
+  kKeywordP "to"
+  limit <- exprP
+  kKeywordP "do"
+  expr <- exprP
+  return $ For assign limit expr
+  where forAssignP = do
+         id <- identifierP
+         token $ string ":="
+         expr <- exprP
+         return $ Assign (LId id) expr
+
+letExprP :: TigerP Expr
+letExprP = do
+  kKeywordP "let"
+  decs <- many decP
+  kKeywordP "in"
+  exprs <- seqExprP
+  kKeywordP "end"
+  return $ Let decs exprs
+
+decP :: TigerP Dec
+decP =
+  choice [ TypeDec <$> typeP
+         ,  VarDec <$> varP
+         ,  FunDec <$> funP
+         ]
 
 typeP :: TigerP Type
 typeP = do
@@ -125,130 +203,19 @@ funP = do
   expr <- exprP
   return $ Fun id args typeAnno expr
 
-lFieldP :: TigerP (Either Id Expr)
-lFieldP = do
-  token $ char '.'
-  id <- identifierP
-  return $ Left id
-
-lArrayP :: TigerP (Either Id Expr)
-lArrayP = do
-  token $ char '['
-  expr <- exprP
-  token $ char ']'
-  return $ Right expr
-
-lValueP :: TigerP LValue
-lValueP = do
-  id <- identifierP
-  rest <- many $ lFieldP <|> lArrayP
-  let lid = LId id
-  case rest of
-    []     -> return $ lid
-    rest'  -> return $ foldl f lid rest'
-      where f lval next =
-              case next of
-                Left id    -> LField lval id
-                Right expr -> LArray lval expr
-
-
-exprP :: TigerP Expr
-exprP = token $ choice [ lValueExprP
-                       , seqExprP
-                       , assignExprP
-                       , stringExprP
-                       , integerExprP
-                       , nExprP
-                       , fExprP
-                       , ifeExprP
-                       , ifExprP
-                       , whileExprP
-                       , forExprP
-                       , breakExprP
-                       , letExprP
-                       , arrayExprP
-                       ]
-
-lValueExprP :: TigerP Expr
-lValueExprP = LExpr <$> lValueP
-
-seqExprP :: TigerP Expr
-seqExprP = do
-  token (char '(')
-  first <- exprP
-  rest  <- many1 $ char ';' >> exprP
-  return $ ExprSeq $ first:rest
-
-nExprP :: TigerP Expr
-nExprP = NExpr <$> (token (char '-') >> exprP)
-
-fExprP :: TigerP Expr
-fExprP = do
-  funId <- identifierP
-  char '('
-  args <- sepBy exprP (char ',')
-  char ')'
-  return $ FExpr funId args
-
-ifeExprP :: TigerP Expr
-ifeExprP = do
-  kKeywordP "if"
-  cond <- exprP
-  kKeywordP "then"
-  thenExpr <- exprP
-  kKeywordP "else"
-  elseExpr <- exprP
-  return $ IfE cond thenExpr elseExpr
-
-ifExprP :: TigerP Expr
-ifExprP = do
-  kKeywordP "if"
-  cond <- exprP
-  kKeywordP "then"
-  thenExpr <- exprP
-  return $ If cond thenExpr
-
-whileExprP :: TigerP Expr
-whileExprP = do
-  kKeywordP "while"
-  cond <- exprP
-  kKeywordP "do"
-  expr <- exprP
-  return $ While cond expr
-
-forExprP :: TigerP Expr
-forExprP = do
-  kKeywordP "for"
-  assign <- forAssignP
-  kKeywordP "to"
-  limit <- exprP
-  kKeywordP "do"
-  expr <- exprP
-  return $ For assign limit expr
-  where forAssignP = do
-         id <- identifierP
-         token $ string ":="
-         expr <- exprP
-         return $ Assign (LId id) expr
-
 breakExprP :: TigerP Expr
 breakExprP = kKeywordP "break" >> return Break
 
-letExprP :: TigerP Expr
-letExprP = do
-  kKeywordP "let"
-  decs <- many decP
-  kKeywordP "in"
-  exprs <- seqExprP
-  kKeywordP "end"
-  return $ Let decs exprs
-
-assignExprP :: TigerP Expr
-assignExprP = do
-  lval <- lValueP
-  token $ string ":="
-  expr <- exprP
-  return $ Assign lval expr
+baseExprP :: TigerP Expr
+baseExprP = choice
+            [ arrayExprP
+            , recordExprP
+            , fCallExprP
+            , lValueExprP
+            , stringExprP
+            , integerExprP
+            , noValueExprP
+            ]
 
 arrayExprP :: TigerP Expr
 arrayExprP = do
@@ -271,9 +238,75 @@ recordExprP = do
           expr <- exprP
           return $ RecordField id expr
 
-decP :: TigerP Dec
-decP =
-  choice [ TypeDec <$> typeP
-         ,  VarDec <$> varP
-         ,  FunDec <$> funP
-         ]
+lFieldP :: TigerP (Either Id Expr)
+lFieldP = do
+  token $ char '.'
+  id <- identifierP
+  return $ Left id
+
+lArrayP :: TigerP (Either Id Expr)
+lArrayP = do
+  token $ char '['
+  expr <- exprP
+  token $ char ']'
+  return $ Right expr
+
+lValueExprP :: TigerP Expr
+lValueExprP = LExpr <$> lValueP
+
+lValueP :: TigerP LValue
+lValueP = do
+  id <- identifierP
+  rest <- many $ lFieldP <|> lArrayP
+  let lid = LId id
+  case rest of
+    []     -> return $ lid
+    rest'  -> return $ foldl f lid rest'
+      where f lval next =
+              case next of
+                Left id    -> LField lval id
+                Right expr -> LArray lval expr
+
+stringExprP :: TigerP Expr
+stringExprP = do
+  token $ char '\"'
+  strs <- many $ listify alpha <|> listify (char ' ') <|> escape
+  token $ char '\"'
+  return $ SExpr (concat strs)
+
+escapeChar :: TigerP Char
+escapeChar = choice [ string "\\n" >> return '\n'
+                    , string "\\t" >> return '\t'
+                    , string "\\\""  >> return '"'
+                    , string "\\\\"  >> return '\\'
+                    ]
+
+escape :: TigerP String
+escape = do
+  choice $ [ multiline
+           , listify escapeChar
+           , ascii
+           ]
+    where ascii      = listify $ char '\\' >> chr . read <$> parseN 3 digit
+          multiline  = between (char '\\') (char '\\') whitespace >> return ""
+
+integerExprP :: TigerP Expr
+integerExprP = IExpr <$> number
+
+fCallExprP :: TigerP Expr
+fCallExprP = do
+  funId <- identifierP
+  char '('
+  args <- sepBy exprP (char ',')
+  char ')'
+  return $ FExpr funId args
+
+assignExprP :: TigerP Expr
+assignExprP = do
+  lval <- lValueP
+  token $ string ":="
+  expr <- exprP
+  return $ Assign lval expr
+
+noValueExprP :: TigerP Expr
+noValueExprP = return NoValue
