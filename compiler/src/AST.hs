@@ -41,7 +41,7 @@ data BOp = Plus | Sub | Mult | Div | Equal | NEqual
          | GT | LT | GTE | LTE | And | Or
          deriving (Show)
 
-data Assoc = Left | Right | None deriving (Show)
+data Assoc = L | R | None deriving (Show)
 type Prec = Int
 data Op = Op BOp Assoc Prec
           deriving (Show)

@@ -29,17 +29,18 @@ comment = between (string "/*") (string "*/") body
   where body = void $ manyTo (comment <|> throw)  "*/"
 
 stringExprP :: TigerP Expr
-stringExprP = SExpr . concat <$> (    many $ escape
-                                <|> listify alpha
-                                <|> listify (char ' ')
-                               )
+stringExprP = do
+  token $ char '\"'
+  strs <- many $ listify alpha <|> listify (char ' ') <|> escape
+  token $ char '\"'
+  return $ SExpr (concat strs)
 
 -- Note: doesn't support control characters
 escapeChar :: TigerP Char
 escapeChar = choice [ string "\\n" >> return '\n'
                     , string "\\t" >> return '\t'
-                    , string "\""  >> return '"'
-                    , string "\\"  >> return '\\'
+                    , string "\\\""  >> return '"'
+                    , string "\\\\"  >> return '\\'
                     ]
 
 escape :: TigerP String
@@ -124,41 +125,49 @@ funP = do
   expr <- exprP
   return $ Fun id args typeAnno expr
 
+lFieldP :: TigerP (Either Id Expr)
+lFieldP = do
+  token $ char '.'
+  id <- identifierP
+  return $ Left id
+
+lArrayP :: TigerP (Either Id Expr)
+lArrayP = do
+  token $ char '['
+  expr <- exprP
+  token $ char ']'
+  return $ Right expr
+
 lValueP :: TigerP LValue
-lValueP =
-  choice [ lValueFieldP
-         , lValueArrayP
-         , LId <$> identifierP
-         ]
-  where lValueFieldP = do
-          lval <- lValueP
-          token $ char '.'
-          id <- identifierP
-          return $ LField lval id
-        lValueArrayP = do
-          lval <- lValueP
-          token $ char '['
-          expr <- exprP
-          token $ char ']'
-          return $ LArray lval expr
+lValueP = do
+  id <- identifierP
+  rest <- many $ lFieldP <|> lArrayP
+  let lid = LId id
+  case rest of
+    []     -> return $ lid
+    rest'  -> return $ foldl f lid rest'
+      where f lval next =
+              case next of
+                Left id    -> LField lval id
+                Right expr -> LArray lval expr
+
 
 exprP :: TigerP Expr
-exprP =
-  choice [ lValueExprP
-         , seqExprP
-         , stringExprP
-         , integerExprP
-         , nExprP
-         , fExprP
-         , ifeExprP
-         , ifExprP
-         , whileExprP
-         , forExprP
-         , breakExprP
-         , letExprP
-         , assignExprP
-         , arrayExprP
-         ]
+exprP = token $ choice [ lValueExprP
+                       , seqExprP
+                       , assignExprP
+                       , stringExprP
+                       , integerExprP
+                       , nExprP
+                       , fExprP
+                       , ifeExprP
+                       , ifExprP
+                       , whileExprP
+                       , forExprP
+                       , breakExprP
+                       , letExprP
+                       , arrayExprP
+                       ]
 
 lValueExprP :: TigerP Expr
 lValueExprP = LExpr <$> lValueP
