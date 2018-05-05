@@ -3,49 +3,53 @@ module AST where
 type Id     = String
 type TypeId = Id
 
-data Dec = TyDec Type
+data Dec = TypeDec Type
          | VarDec Var
          | FunDec Fun
+         deriving (Show)
 
-data Type   = Type { typeConst :: TypeId
+data Type   = Type { typeC :: TypeId
                    , typeBody  :: TypeBody
-                   }
+                   } deriving (Show)
 
-data TypeBody  = DataConst
+data TypeBody  = DataConst TypeId
                | TypeRecord [TypeField]
                | TypeArray TypeId
+               deriving (Show)
 
 data TypeField = TypeField { tfId   :: Id
                            , tfType :: TypeId
-                           }
+                           } deriving (Show)
 
-data Var = Var { varId   :: Id
-               , varType :: Maybe TypeId
-               , varExpr :: Expr
-               }
+data Var = Var { vId   :: Id
+               , vType :: Maybe TypeId
+               , vExpr :: Expr
+               } deriving (Show)
 
-data Fun = Fun { funId   :: Id
-               , funArgs :: [TypeField]
-               , funType :: Maybe TypeId
-               , funExpr :: Expr
-               }
+data Fun = Fun { fId   :: Id
+               , fArgs :: [TypeField]
+               , fType :: Maybe TypeId
+               , fExpr :: Expr
+               } deriving (Show)
 
 data LValue = LId Id
             | LField LValue Id
-            | LArray LValue [Expr]
+            | LArray LValue Expr
+            deriving (Show)
 
 data BOp = Plus | Sub | Mult | Div | Equal | NEqual
          | GT | LT | GTE | LTE | And | Or
+         deriving (Show)
 
-data Assoc = Left | Right | None
+data Assoc = Left | Right | None deriving (Show)
 type Prec = Int
 data Op = Op BOp Assoc Prec
+          deriving (Show)
 
 data RecordField = RecordField { rfId   :: Id
                                , rfType :: TypeId
-                               }
+                               } deriving (Show)
 data Expr = LExpr LValue
-          | EmptyExpr
           | Nil
           | ExprSeq [Expr]
           | NoValue
@@ -55,19 +59,13 @@ data Expr = LExpr LValue
           | NExpr Expr
           | Record TypeId [RecordField]
           | Array TypeId Expr Expr
-          | Assign LValue Expr
+          | Assign Id Expr
           | IfE Expr Expr Expr
           | If Expr Expr
           | While Expr Expr
           | For Expr Expr Expr
           | Break
           | Let [Dec] Expr
-
-
-
-
-
-
-
-
+          | FExpr Id [Expr]
+          deriving (Show)
 

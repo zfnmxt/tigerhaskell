@@ -5,6 +5,7 @@ module DumbParser (
   , Env (..)
   , satisfy
   , reject
+  , maybeP
   , char
   , string
   , option
@@ -16,12 +17,13 @@ module DumbParser (
   , void
   , (<|>)
   , many
+  , many1
   , throw
   , some
   , empty
   , whitespace
   , eof
-  , num
+  , number
   , digit
   , letter
   , alpha
@@ -29,9 +31,11 @@ module DumbParser (
   , chainl1
   , token
   , sepBy1
+  , sepBy
   , runParser
   , manyTo
   , listify
+  , stoken
 ) where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
@@ -137,6 +141,12 @@ munch1 p = do
  rest <- munch p
  return $ c:rest
 
+many1 :: Error e => Parser e a -> Parser e [a]
+many1 p = do
+ first <- p
+ rest  <- many p
+ return $ first:rest
+
 parseN :: Error e => Int -> Parser e a -> Parser e [a]
 parseN n p = mapM (\_ -> p) [1..n]
 
@@ -148,8 +158,8 @@ eof = do
   s <- getString
   if s == [] then return () else reject
 
-num :: Error e => Parser e Int
-num = do
+number :: Error e => Parser e Integer
+number = do
   s <- munch1 isNumber
   return $ read s
 
@@ -180,11 +190,17 @@ chainl1 p op = p >>= f
 token :: Error e => Parser e a -> Parser e a
 token p = whitespace >> p
 
+stoken :: Error e => Parser e a -> Parser e a
+stoken p = munch1 (== ' ')  >> p
+
 sepBy1 :: Error e => Parser e a -> Parser e sep -> Parser e [a]
 sepBy1 p sep = do
   first <- p
   rest  <- many (sep >> p)
   return $ first:rest
+
+sepBy :: Error e => Parser e a -> Parser e sep -> Parser e [a]
+sepBy p sep = sepBy1 p sep <|> return []
 
 throw :: Error e => Parser e ()
 throw = getNextChar >> return ()
@@ -202,3 +218,7 @@ manyTo p s = do
 
 listify :: Error e => Parser e a -> Parser e [a]
 listify p = (\a -> [a]) <$> p
+
+maybeP :: Error e => Parser e a -> Parser e (Maybe a)
+maybeP p = Just <$> p <|> return Nothing
+
