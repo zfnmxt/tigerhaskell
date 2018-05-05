@@ -138,7 +138,7 @@ eof = do
 
 number :: Error e => Parser e Integer
 number = do
-  s <- munch1 isNumber
+  s <- many1 $ satisfy isNumber
   return $ read s
 
 digit :: Error e => Parser e Char
@@ -169,7 +169,7 @@ token :: Error e => Parser e a -> Parser e a
 token p = whitespace >> p
 
 stoken :: Error e => Parser e a -> Parser e a
-stoken p = munch1 (== ' ')  >> p
+stoken p = many1 ( satisfy (== ' ') )  >> p
 
 sepBy1 :: Error e => Parser e a -> Parser e sep -> Parser e [a]
 sepBy1 p sep = do
