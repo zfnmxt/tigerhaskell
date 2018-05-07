@@ -51,19 +51,18 @@ exprP :: TigerP Expr
 exprP = between (token (char '(')) (token (char ')')) seqExprP
         <|> orP
 
-
 orP :: TigerP Expr
-orP = chainl1 andP (token (char '|') >> return (BExpr Or))
+orP = token $ chainl1 andP (token (char '|') >> return (BExpr Or))
 
 andP :: TigerP Expr
 andP = chainl1 comparisonP (token (char '&') >> return (BExpr And))
 
 comparisonP :: TigerP Expr
-comparisonP = comparisonP' <|> plusSubP
+comparisonP = comparisonP' <|> addSubP
   where comparisonP' = do
-           l  <- plusSubP
-           op <- choice $ map (\s -> token (string s)) ["=", "<>", ">", "<", ">=", "<="]
-           r  <- plusSubP
+           l  <- addSubP
+           op <- choice $ map (\s -> token (string s)) [">=", "<=", "=", "<>", ">", "<"]
+           r  <- addSubP
            case op of
              "="  -> return $ BExpr Equal  l r
              "<>" -> return $ BExpr NEqual l r
@@ -72,19 +71,27 @@ comparisonP = comparisonP' <|> plusSubP
              ">=" -> return $ BExpr GTE    l r
              "<=" -> return $ BExpr LTE    l r
 
-plusSubP :: TigerP Expr
-plusSubP = plusP <|> subP
-  where plusP = chainl1 multDivP (token (char '+') >> return (BExpr Plus))
-        subP  = chainl1 multDivP (token (char '-') >> return (BExpr Sub))
+addSubP :: TigerP Expr
+addSubP = chainl1 multDivP $ do
+             op <- token (satisfy (`elem` ['+', '-']))
+             case op of
+               '+' -> return $ BExpr Add
+               '-' -> return $ BExpr Sub
 
 multDivP :: TigerP Expr
-multDivP = multP <|> divP
-  where multP = chainl1 negExprP  (token (char '*') >> return (BExpr Mult))
-        divP  = chainl1 negExprP (token (char '/') >> return (BExpr Div))
+multDivP = chainl1 negExprP $ do
+             op <- token (satisfy (`elem` ['*', '/']))
+             case op of
+               '*' -> return $ BExpr Mult
+               '/' -> return $ BExpr Div
 
 negExprP :: TigerP Expr
 negExprP = (token (char '-') >> NExpr <$> primaryP )
-           <|> primaryP
+           <|> parenP
+
+parenP :: TigerP Expr
+parenP = between (token (char '(')) (token (char ')')) exprP
+         <|> primaryP
 
 primaryP :: TigerP Expr
 primaryP = choice
@@ -291,7 +298,7 @@ escape = do
           multiline  = between (char '\\') (char '\\') whitespace >> return ""
 
 integerExprP :: TigerP Expr
-integerExprP = IExpr <$> number
+integerExprP = token $ IExpr <$> number
 
 fCallExprP :: TigerP Expr
 fCallExprP = do

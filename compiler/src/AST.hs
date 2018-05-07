@@ -6,51 +6,51 @@ type TypeId = Id
 data Dec = TypeDec Type
          | VarDec Var
          | FunDec Fun
-         deriving (Show)
+         deriving (Show, Eq)
 
 data Type   = Type { typeC :: TypeId
                    , typeBody  :: TypeBody
-                   } deriving (Show)
+                   } deriving (Show, Eq)
 
 data TypeBody  = DataConst TypeId
                | TypeRecord [TypeField]
                | TypeArray TypeId
-               deriving (Show)
+               deriving (Show, Eq)
 
 data TypeField = TypeField { tfId   :: Id
                            , tfType :: TypeId
-                           } deriving (Show)
+                           } deriving (Show, Eq)
 
 data Var = Var { vId   :: Id
                , vType :: Maybe TypeId
                , vExpr :: Expr
-               } deriving (Show)
+               } deriving (Show, Eq)
 
 data Fun = Fun { fId   :: Id
                , fArgs :: [TypeField]
                , fType :: Maybe TypeId
                , fExpr :: Expr
-               } deriving (Show)
+               } deriving (Show, Eq)
 
 data LValue = LId Id
             | LField LValue Id
             | LArray LValue Expr
-            deriving (Show)
+            deriving (Show, Eq)
 
-data BOp = Plus | Sub | Mult | Div | Equal | NEqual
+data BOp = Add | Sub | Mult | Div | Equal | NEqual
          | Gt | Lt | GTE | LTE | And | Or
-         deriving (Show)
+         deriving (Show, Eq)
 
-data Assoc = L | R | None deriving (Show)
+data Assoc = L | R | None deriving (Show, Eq)
 type Prec = Int
 data Op = Op { operator   :: BOp
              , assoc      :: Assoc
              , precedence :: Prec
-             } deriving (Show)
+             } deriving (Show, Eq)
 
 data RecordField = RecordField { rfId   :: Id
                                , rfExpr :: Expr
-                               } deriving (Show)
+                               } deriving (Show, Eq)
 data Expr = LExpr LValue
           | Nil
           | ExprSeq [Expr]
@@ -69,5 +69,5 @@ data Expr = LExpr LValue
           | Break
           | Let [Dec] Expr
           | FExpr Id [Expr]
-          deriving (Show)
+          deriving (Show, Eq)
 

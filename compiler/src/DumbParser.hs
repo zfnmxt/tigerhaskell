@@ -41,7 +41,7 @@ import Data.Char (isSpace, isNumber, isDigit, isAlpha)
 import Data.List (isPrefixOf)
 import Control.Monad (void)
 
-data Env = Env { linenum :: Int, colnum :: Int} deriving (Show)
+data Env = Env { linenum :: Int, colnum :: Int} deriving (Show, Eq)
 
 class Error e where
   errEmpty :: e
@@ -151,19 +151,21 @@ alpha :: Error e => Parser e Char
 alpha = satisfy isAlpha
 
 chainr1 :: Error e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
-chainr1 p op =  p <|> do
-  l <- p
-  op' <- op
-  r <- chainr1 p op
-  return $ l `op'` r
+chainr1 p op = do
+    l <- p
+    op' <- op
+    r <- chainr1 p op
+    return $ l `op'` r
+  <|> p
 
 chainl1 :: Error e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
 chainl1 p op = p >>= f
   where
-    f l = return l <|> do
-      op' <- op
-      r   <- p
-      f (l `op'` r)
+    f l = do
+          op' <- op
+          r   <- p
+          f (l `op'` r)
+      <|> return l
 
 token :: Error e => Parser e a -> Parser e a
 token p = whitespace >> p
