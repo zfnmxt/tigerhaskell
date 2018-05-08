@@ -25,6 +25,7 @@ module DumbParser (
   , digit
   , letter
   , alpha
+  , alphaNum
   , chainr1
   , chainl1
   , token
@@ -38,7 +39,7 @@ module DumbParser (
 ) where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
-import Data.Char (isSpace, isNumber, isDigit, isAlpha)
+import Data.Char (isSpace, isNumber, isDigit, isAlpha, isAlphaNum)
 import Data.List (isPrefixOf)
 import Control.Monad (void)
 
@@ -150,6 +151,9 @@ letter = satisfy (`elem` (['a'..'z'] ++ ['A'..'Z']))
 
 alpha :: Error e => Parser e Char
 alpha = satisfy isAlpha
+
+alphaNum :: Error e => Parser e Char
+alphaNum = satisfy isAlphaNum
 
 chainr1 :: Error e => Parser e a -> Parser e (a -> a -> a) -> Parser e a
 chainr1 p op = do
