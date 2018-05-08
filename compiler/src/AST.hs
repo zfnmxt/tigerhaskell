@@ -17,9 +17,10 @@ data TypeBody  = DataConst TypeId
                | ArrayType TypeId
                deriving (Show, Eq)
 
-data TypeField = TypeField { tfId   :: Id
-                           , tfType :: TypeId
+data TypeField = TypeField { tfId :: Id
+                           , tfType  :: TypeId
                            } deriving (Show, Eq)
+(|:) = TypeField 
 
 data Var = Var { vId   :: Id
                , vType :: Maybe TypeId
@@ -51,6 +52,9 @@ data Op = Op { operator   :: BOp
 data RecordField = RecordField { rfId   :: Id
                                , rfExpr :: Expr
                                } deriving (Show, Eq)
+
+(|.) = RecordField
+
 data Expr = LExpr LValue
           | Nil
           | ExprSeq [Expr]
