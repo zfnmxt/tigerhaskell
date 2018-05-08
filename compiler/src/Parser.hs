@@ -59,8 +59,10 @@ seqExprP = do
   return $ ExprSeq $ first:rest
 
 exprP :: TigerP Expr
-exprP = between (ctoken' (char '(')) (ctoken' (char ')')) seqExprP
+exprP = do
+        expr <- between (ctoken' (char '(')) (ctoken' (char ')')) seqExprP
                 <|> orP
+        ctoken' (return expr)
 
 orP :: TigerP Expr
 orP = ctoken' $ chainl1 andP (ctoken' (char '|') >> return (BExpr Or))
@@ -111,6 +113,7 @@ primaryP = choice
            , forExprP
            , letExprP
            , breakExprP
+           , assignExprP
            , baseExprP
            ]
 
@@ -248,6 +251,7 @@ recordExprP = do
   type' <- typeIdP
   ctoken' $ char '{'
   fields <- sepBy1 fieldP (char ',')
+  ctoken' $ char '}'
   return $ Record type' fields
   where fieldP = do
           id <- identifierP
