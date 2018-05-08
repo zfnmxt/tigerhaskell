@@ -187,7 +187,7 @@ typeFieldsP =
         id <- identifierP
         ctoken' $ char ':'
         type' <- typeIdP
-        return $ TypeField id type'
+        return $ id |: type'
   in do first <- idTypeP
         rest  <- many $ (ctoken' (char ',')) >> idTypeP
         return $ first:rest
@@ -231,10 +231,14 @@ baseExprP = choice
             [ arrayExprP
             , recordExprP
             , fCallExprP
+            , nilExprP
             , lValueExprP
             , stringExprP
             , integerExprP
             ]
+
+nilExprP :: TigerP Expr
+nilExprP = kKeywordP "nil" >> return Nil
 
 arrayExprP :: TigerP Expr
 arrayExprP = do
@@ -257,7 +261,7 @@ recordExprP = do
           id <- identifierP
           char '='
           expr <- exprP
-          return $ RecordField id expr
+          return $ id |. expr
 
 lFieldP :: TigerP (Either Id Expr)
 lFieldP = do
@@ -291,7 +295,7 @@ lValueP = do
 stringExprP :: TigerP Expr
 stringExprP = do
   ctoken' $ char '\"'
-  strs <- many $ listify alpha <|> listify (char ' ') <|> escape
+  strs <- many $ listify alphaNum <|> listify (char ' ') <|> escape
   ctoken' $ char '\"'
   return $ SExpr (concat strs)
 
@@ -313,13 +317,13 @@ escape = do
 
 integerExprP :: TigerP Expr
 integerExprP = ctoken' $ IExpr <$> number
-
+  
 fCallExprP :: TigerP Expr
 fCallExprP = do
   funId <- identifierP
   char '('
-  args <- sepBy exprP (char ',')
-  char ')'
+  args <- sepBy exprP (ctoken' (char ','))
+  ctoken' $ char ')'
   return $ FCall funId args
 
 assignExprP :: TigerP Expr
