@@ -238,6 +238,7 @@ arrayExprP = do
   type' <- typeIdP
   ctoken' $ char '['
   n <- exprP
+  ctoken' $ char ']'
   kKeywordP "of"
   v <- exprP
   return $ Array type' n v
