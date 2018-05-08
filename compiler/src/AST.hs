@@ -13,8 +13,8 @@ data Type   = Type { typeC :: TypeId
                    } deriving (Show, Eq)
 
 data TypeBody  = DataConst TypeId
-               | TypeRecord [TypeField]
-               | TypeArray TypeId
+               | RecordType [TypeField]
+               | ArrayType TypeId
                deriving (Show, Eq)
 
 data TypeField = TypeField { tfId   :: Id
@@ -67,7 +67,7 @@ data Expr = LExpr LValue
           | While Expr Expr
           | For Expr Expr Expr
           | Break
-          | Let [Dec] Expr
-          | FExpr Id [Expr]
+          | Let [Dec] [Expr]
+          | FCall Id [Expr]
           deriving (Show, Eq)
 

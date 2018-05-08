@@ -22,6 +22,13 @@ testParseE s = case runParser exprP testEnv s of
                "" -> (Right (fst x))
                _  -> Left ""
 
+testParseD :: String -> Either TigerError Dec
+testParseD s = case runParser decP testEnv s of
+  Left  x -> (Left "")
+  Right x -> case (snd (snd x)) of
+               "" -> (Right (fst x))
+               _  -> Left ""
+
 parserTests :: SpecWith ()
 parserTests = do
   baseTests
@@ -80,8 +87,73 @@ baseTests = describe "Basic parser tests" $ do
     testParseE "(1 = 2) = 3" `shouldBe`
       Right (BExpr Equal (BExpr Equal (IExpr 1) (IExpr 2)) (IExpr 3))
 
+  it "parses function calls" $ do
+    testParseE "func()" `shouldBe` Right (FCall "func" [])
+    testParseE "func(1, \"foo\")" `shouldBe` Right (FCall "func" [IExpr 1, SExpr "foo"])
+    testParseE "func(1,)" `shouldBe` Left ""
 
+  it "parses break statements" $ do
+    testParseE "break" `shouldBe` Right (Break)
 
+  it "parses if-then statements" $ do
+    testParseE "if 1 > 2 then break" `shouldBe`
+      Right (If (BExpr Gt (IExpr 1) (IExpr 2)) (Break))
+    testParseE "if 1 > 2 then if 1 > 2 then break" `shouldBe`
+      Right (If (BExpr Gt (IExpr 1) (IExpr 2)) (If (BExpr Gt (IExpr 1) (IExpr 2)) (Break)))
 
+  it "parses if-then-else statements" $ do
+    testParseE "if 1 > 2 then break else 1 < 2" `shouldBe`
+      Right (IfE (BExpr Gt (IExpr 1) (IExpr 2)) (Break) (BExpr Lt (IExpr 1) (IExpr 2)))
 
+  it "parses while statements" $ do
+    testParseE "while 1 > 2 do break" `shouldBe`
+      Right (While (BExpr Gt (IExpr 1) (IExpr 2)) Break)
 
+  it "parses l-values" $ do
+    testParseE "foo123" `shouldBe` Right (LExpr (LId "foo123"))
+    testParseE "123foo" `shouldBe` Left ""
+    testParseE "myRecord.foo" `shouldBe` Right (LExpr (LField (LId "myRecord") "foo"))
+    testParseE "myArray[5]" `shouldBe` Right (LExpr (LArray (LId "myArray") (IExpr 5)))
+    testParseE "myArray[]" `shouldBe` Left ""
+    testParseE "myRecord.myArray[5]" `shouldBe`
+      Right (LExpr (LArray (LField (LId "myRecord") "myArray") (IExpr 5)))
+
+  it "parses for statements" $ do
+    testParseE "for i := 0 to 5 do break" `shouldBe`
+      Right (For (Assign (LId "i") (IExpr 0)) (IExpr 5) Break)
+
+  it "parses type declarations" $ do
+    testParseD "type singletonType = singletonType" `shouldBe`
+      Right (TypeDec(Type "singletonType" (DataConst "singletonType") ))
+    testParseD "type intlist = array of int" `shouldBe`
+      Right (TypeDec(Type "intlist" (ArrayType "int") ))
+    testParseD "type tree = {key: int, children: treelist}" `shouldBe`
+      Right (TypeDec(Type "tree" (RecordType [TypeField "key" "int", TypeField "children" "treelist"])))
+    testParseD "type emptyRecord = {}" `shouldBe`
+      Right (TypeDec(Type "emptyRecord" (RecordType [])))
+
+  it "parses variable declarations" $ do
+    testParseD "var x := 5" `shouldBe` Right (VarDec (Var "x" Nothing (IExpr 5)))
+    testParseD "var x : int := 5" `shouldBe` Right (VarDec (Var "x" (Just "int") (IExpr 5)))
+    testParseD "var x : := 5" `shouldBe` Left ""
+
+  it "parses function declarations" $ do
+    testParseD "function myFunc() = 5" `shouldBe`
+      Right (FunDec (Fun "myFunc" [] Nothing (IExpr 5)))
+    testParseD "function myFunc () : int = 5" `shouldBe`
+      Right (FunDec (Fun "myFunc" [] (Just "int") (IExpr 5)))
+    testParseD "function myFunc(arg1: int, arg2: string, arg3:foo) : int = 5" `shouldBe`
+      Right (FunDec (Fun "myFunc" [TypeField "arg1" "int", TypeField "arg2" "string", TypeField "arg3" "foo"]
+                     (Just "int") (IExpr 5)))
+
+  it "parses let statements" $ do
+    testParseE "let in 5 end" `shouldBe`
+      Right (Let [] [IExpr 5])
+    testParseE "let in end" `shouldBe`
+      Right (Let [] [])
+    testParseE "let var x := 5 \n var y := 6 in x + y end" `shouldBe`
+      Right (Let [(VarDec (Var "x" Nothing (IExpr 5))), (VarDec (Var "y" Nothing (IExpr 6)))]
+                 [BExpr Add (LExpr (LId "x")) (LExpr (LId "y"))])
+
+--appelTests :: SpecWith ()
+--appelTests = describe "tests using appel's .tig files" $ do

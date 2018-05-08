@@ -48,8 +48,8 @@ seqExprP = do
   return $ ExprSeq $ first:rest
 
 exprP :: TigerP Expr
-exprP = between (token (char '(')) (token (char ')')) seqExprP
-        <|> orP
+exprP = token $ between (token (char '(')) (token (char ')')) seqExprP
+                <|> orP
 
 orP :: TigerP Expr
 orP = token $ chainl1 andP (token (char '|') >> return (BExpr Or))
@@ -90,7 +90,7 @@ negExprP = (token (char '-') >> NExpr <$> primaryP )
            <|> parenP
 
 parenP :: TigerP Expr
-parenP = between (token (char '(')) (token (char ')')) exprP
+parenP = between (token (char '(')) (token (char ')')) (exprP <|> return NoValue)
          <|> primaryP
 
 primaryP :: TigerP Expr
@@ -143,16 +143,15 @@ letExprP = do
   kKeywordP "let"
   decs <- many decP
   kKeywordP "in"
-  exprs <- seqExprP
+  exprs <- sepBy exprP (token (char ';'))
   kKeywordP "end"
   return $ Let decs exprs
 
 decP :: TigerP Dec
-decP =
-  choice [ TypeDec <$> typeP
-         ,  VarDec <$> varP
-         ,  FunDec <$> funP
-         ]
+decP = token $ choice [ TypeDec <$> typeP
+                      ,  VarDec <$> varP
+                      ,  FunDec <$> funP
+                      ]
 
 typeP :: TigerP Type
 typeP = do
@@ -163,8 +162,8 @@ typeP = do
   return $ Type typeConst' typeBody'
 
 typeBodyP :: TigerP TypeBody
-typeBodyP = choice [ typeArrayP
-                   , TypeRecord <$> between (token (char '{')) (token (char '}')) typeFieldsP
+typeBodyP = choice [ arrayTypeP
+                   , RecordType <$> between (token (char '{')) (token (char '}')) typeFieldsP
                    , DataConst  <$> typeIdP
                    ]
 
@@ -180,11 +179,11 @@ typeFieldsP =
         return $ first:rest
   <|> return []
 
-typeArrayP :: TigerP TypeBody
-typeArrayP = do
+arrayTypeP :: TigerP TypeBody
+arrayTypeP = do
   kKeywordP "array"
   kKeywordP "of"
-  TypeArray <$> typeIdP
+  ArrayType <$> typeIdP
 
 typeAnnoP :: TigerP (Maybe TypeId)
 typeAnnoP = maybeP $ (token (char ':') >> typeIdP)
@@ -221,7 +220,6 @@ baseExprP = choice
             , lValueExprP
             , stringExprP
             , integerExprP
-            , noValueExprP
             ]
 
 arrayExprP :: TigerP Expr
@@ -306,7 +304,7 @@ fCallExprP = do
   char '('
   args <- sepBy exprP (char ',')
   char ')'
-  return $ FExpr funId args
+  return $ FCall funId args
 
 assignExprP :: TigerP Expr
 assignExprP = do
@@ -314,6 +312,3 @@ assignExprP = do
   token $ string ":="
   expr <- exprP
   return $ Assign lval expr
-
-noValueExprP :: TigerP Expr
-noValueExprP = return NoValue
