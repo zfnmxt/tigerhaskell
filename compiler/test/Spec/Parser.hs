@@ -2,6 +2,7 @@ module Spec.Parser where
 
 import Test.Hspec
 import Test.QuickCheck
+import Spec.AppelTigFiles
 
 import Parser
 import DumbParser
@@ -32,6 +33,7 @@ testParseD s = case runParser decP testEnv s of
 parserTests :: SpecWith ()
 parserTests = do
   baseTests
+  appelTests
 
 baseTests :: SpecWith ()
 baseTests = describe "Basic parser tests" $ do
@@ -155,5 +157,35 @@ baseTests = describe "Basic parser tests" $ do
       Right (Let [(VarDec (Var "x" Nothing (IExpr 5))), (VarDec (Var "y" Nothing (IExpr 6)))]
                  [BExpr Add (LExpr (LId "x")) (LExpr (LId "y"))])
 
---appelTests :: SpecWith ()
---appelTests = describe "tests using appel's .tig files" $ do
+appelTests :: SpecWith ()
+appelTests = describe "tests using appel's .tig files" $ do
+  it "parses test1 correctly" $ do
+    let letDecs = [ TypeDec (Type "arrtype" (ArrayType "int"))
+              , VarDec ( Var "arr1" (Just "arrtype")
+                         (Array "arrtype" (IExpr 10) (IExpr 0))
+                       )
+              ]
+    testParseE test1 `shouldBe` Right (Let letDecs [(LExpr (LId "arr1"))])
+
+  it "parses test2 correctly" $ do
+    let letDecs = [ TypeDec (Type "myint" (DataConst "int"))
+                  , TypeDec (Type "arrtype" (ArrayType "myint"))
+                  , VarDec ( Var "arr1" (Just "arrtype")
+                             (Array "arrtype" (IExpr 10) (IExpr 0))
+                           )
+                 ]
+    testParseE test2 `shouldBe` Right (Let letDecs [(LExpr (LId "arr1"))])
+
+  it "parses test3 correctly" $ do
+    let letDecs = [ TypeDec (Type "rectype" (RecordType [TypeField "name" "string", TypeField "age" "int"]))
+                  , VarDec ( Var "rec1" (Just "rectype")
+                             (Record "rectype" [RecordField "name" (SExpr "Nobody"), RecordField "age" (IExpr 1000)])
+                           )
+                 ]
+    testParseE test3 `shouldBe` Right (Let letDecs
+                                          [ Assign (LField (LId "rec1") "name") (SExpr "Somebody"),
+                                            LExpr (LId "rec1")
+                                          ]
+                                      )
+
+
