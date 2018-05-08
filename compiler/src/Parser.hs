@@ -10,32 +10,43 @@ import Data.Char (chr)
 type TigerError = String
 type TigerP = Parser TigerError
 
+initialEnv :: Env
+initialEnv = Env 0 0
+
+tigerParse :: TigerP a -> String -> Either TigerError a
+tigerParse p s =
+  case runParser p initialEnv s of
+    Left x -> Left x
+    Right (x, _) -> Right x
+
 instance Error TigerError where
   errEmpty = ""
   errFail env = "Parser failure at " ++ line ++ ":" ++ col
     where line = show $ linenum env
           col  = show $ colnum env
 
+ctoken' :: TigerP a -> TigerP a
+ctoken' = ctoken commentP
+
 identifierP :: TigerP String
 identifierP = do
-  x <- token letter
+  x <- ctoken' letter
   rest <- many $ choice [letter, digit, char '_']
   if (x:rest) `elem` keywords
     then reject
     else return $ x:rest
 
-comment :: TigerP ()
-comment = between (string "/*") (string "*/") body
-  where body = void $ manyTo (comment <|> throw)  "*/"
 
--- Note: doesn't support control characters
+commentP :: TigerP ()
+commentP = between (string "/*") (string "*/") body
+  where body = void $ manyTo (commentP <|> throw)  "*/"
 
 keywordP :: TigerP String
 keywordP = choice $ map string keywords
 
 kKeywordP :: String -> TigerP String
 kKeywordP k = do
-  k' <- token keywordP
+  k' <- ctoken' keywordP
   if k == k' then return k else reject
 
 typeIdP :: TigerP TypeId
@@ -48,20 +59,20 @@ seqExprP = do
   return $ ExprSeq $ first:rest
 
 exprP :: TigerP Expr
-exprP = token $ between (token (char '(')) (token (char ')')) seqExprP
+exprP = between (ctoken' (char '(')) (ctoken' (char ')')) seqExprP
                 <|> orP
 
 orP :: TigerP Expr
-orP = token $ chainl1 andP (token (char '|') >> return (BExpr Or))
+orP = ctoken' $ chainl1 andP (ctoken' (char '|') >> return (BExpr Or))
 
 andP :: TigerP Expr
-andP = chainl1 comparisonP (token (char '&') >> return (BExpr And))
+andP = chainl1 comparisonP (ctoken' (char '&') >> return (BExpr And))
 
 comparisonP :: TigerP Expr
 comparisonP = comparisonP' <|> addSubP
   where comparisonP' = do
            l  <- addSubP
-           op <- choice $ map (\s -> token (string s)) [">=", "<=", "=", "<>", ">", "<"]
+           op <- choice $ map (\s -> ctoken' (string s)) [">=", "<=", "=", "<>", ">", "<"]
            r  <- addSubP
            case op of
              "="  -> return $ BExpr Equal  l r
@@ -73,24 +84,24 @@ comparisonP = comparisonP' <|> addSubP
 
 addSubP :: TigerP Expr
 addSubP = chainl1 multDivP $ do
-             op <- token (satisfy (`elem` ['+', '-']))
+             op <- ctoken' (satisfy (`elem` ['+', '-']))
              case op of
                '+' -> return $ BExpr Add
                '-' -> return $ BExpr Sub
 
 multDivP :: TigerP Expr
 multDivP = chainl1 negExprP $ do
-             op <- token (satisfy (`elem` ['*', '/']))
+             op <- ctoken' (satisfy (`elem` ['*', '/']))
              case op of
                '*' -> return $ BExpr Mult
                '/' -> return $ BExpr Div
 
 negExprP :: TigerP Expr
-negExprP = (token (char '-') >> NExpr <$> primaryP )
+negExprP = (ctoken' (char '-') >> NExpr <$> primaryP )
            <|> parenP
 
 parenP :: TigerP Expr
-parenP = between (token (char '(')) (token (char ')')) (exprP <|> return NoValue)
+parenP = between (ctoken' (char '(')) (ctoken' (char ')')) (exprP <|> return NoValue)
          <|> primaryP
 
 primaryP :: TigerP Expr
@@ -134,7 +145,7 @@ forExprP = do
   return $ For assign limit expr
   where forAssignP = do
          id <- identifierP
-         token $ string ":="
+         ctoken' $ string ":="
          expr <- exprP
          return $ Assign (LId id) expr
 
@@ -143,12 +154,12 @@ letExprP = do
   kKeywordP "let"
   decs <- many decP
   kKeywordP "in"
-  exprs <- sepBy exprP (token (char ';'))
+  exprs <- sepBy exprP (ctoken' (char ';'))
   kKeywordP "end"
   return $ Let decs exprs
 
 decP :: TigerP Dec
-decP = token $ choice [ TypeDec <$> typeP
+decP = ctoken' $ choice [ TypeDec <$> typeP
                       ,  VarDec <$> varP
                       ,  FunDec <$> funP
                       ]
@@ -157,13 +168,13 @@ typeP :: TigerP Type
 typeP = do
   kKeywordP "type"
   typeConst' <- typeIdP
-  token $ char '='
+  ctoken' $ char '='
   typeBody' <- typeBodyP
   return $ Type typeConst' typeBody'
 
 typeBodyP :: TigerP TypeBody
 typeBodyP = choice [ arrayTypeP
-                   , RecordType <$> between (token (char '{')) (token (char '}')) typeFieldsP
+                   , RecordType <$> between (ctoken' (char '{')) (ctoken' (char '}')) typeFieldsP
                    , DataConst  <$> typeIdP
                    ]
 
@@ -171,11 +182,11 @@ typeFieldsP :: TigerP [TypeField]
 typeFieldsP =
   let idTypeP = do
         id <- identifierP
-        token $ char ':'
+        ctoken' $ char ':'
         type' <- typeIdP
         return $ TypeField id type'
   in do first <- idTypeP
-        rest  <- many $ (token (char ',')) >> idTypeP
+        rest  <- many $ (ctoken' (char ',')) >> idTypeP
         return $ first:rest
   <|> return []
 
@@ -186,14 +197,14 @@ arrayTypeP = do
   ArrayType <$> typeIdP
 
 typeAnnoP :: TigerP (Maybe TypeId)
-typeAnnoP = maybeP $ (token (char ':') >> typeIdP)
+typeAnnoP = maybeP $ (ctoken' (char ':') >> typeIdP)
 
 varP :: TigerP Var
 varP = do
   kKeywordP "var"
   id <- identifierP
   typeAnno <- typeAnnoP
-  token $ string ":="
+  ctoken' $ string ":="
   expr <- exprP
   return $ Var id typeAnno expr
 
@@ -201,11 +212,11 @@ funP :: TigerP Fun
 funP = do
   kKeywordP "function"
   id <- identifierP
-  token $ char '('
+  ctoken' $ char '('
   args <- typeFieldsP
-  token $ char ')'
+  ctoken' $ char ')'
   typeAnno <- typeAnnoP
-  token $ char '='
+  ctoken' $ char '='
   expr <- exprP
   return $ Fun id args typeAnno expr
 
@@ -225,7 +236,7 @@ baseExprP = choice
 arrayExprP :: TigerP Expr
 arrayExprP = do
   type' <- typeIdP
-  token $ char '['
+  ctoken' $ char '['
   n <- exprP
   kKeywordP "of"
   v <- exprP
@@ -234,7 +245,7 @@ arrayExprP = do
 recordExprP :: TigerP Expr
 recordExprP = do
   type' <- typeIdP
-  token $ char '{'
+  ctoken' $ char '{'
   fields <- sepBy1 fieldP (char ',')
   return $ Record type' fields
   where fieldP = do
@@ -245,15 +256,15 @@ recordExprP = do
 
 lFieldP :: TigerP (Either Id Expr)
 lFieldP = do
-  token $ char '.'
+  ctoken' $ char '.'
   id <- identifierP
   return $ Left id
 
 lArrayP :: TigerP (Either Id Expr)
 lArrayP = do
-  token $ char '['
+  ctoken' $ char '['
   expr <- exprP
-  token $ char ']'
+  ctoken' $ char ']'
   return $ Right expr
 
 lValueExprP :: TigerP Expr
@@ -274,9 +285,9 @@ lValueP = do
 
 stringExprP :: TigerP Expr
 stringExprP = do
-  token $ char '\"'
+  ctoken' $ char '\"'
   strs <- many $ listify alpha <|> listify (char ' ') <|> escape
-  token $ char '\"'
+  ctoken' $ char '\"'
   return $ SExpr (concat strs)
 
 escapeChar :: TigerP Char
@@ -296,7 +307,7 @@ escape = do
           multiline  = between (char '\\') (char '\\') whitespace >> return ""
 
 integerExprP :: TigerP Expr
-integerExprP = token $ IExpr <$> number
+integerExprP = ctoken' $ IExpr <$> number
 
 fCallExprP :: TigerP Expr
 fCallExprP = do
@@ -309,6 +320,6 @@ fCallExprP = do
 assignExprP :: TigerP Expr
 assignExprP = do
   lval <- lValueP
-  token $ string ":="
+  ctoken' $ string ":="
   expr <- exprP
   return $ Assign lval expr

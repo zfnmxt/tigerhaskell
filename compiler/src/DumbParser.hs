@@ -34,6 +34,7 @@ module DumbParser (
   , manyTo
   , listify
   , stoken
+  , ctoken
 ) where
 
 import Control.Applicative ( Alternative, (<|>), empty, many, some)
@@ -167,8 +168,12 @@ chainl1 p op = p >>= f
           f (l `op'` r)
       <|> return l
 
+
 token :: Error e => Parser e a -> Parser e a
 token p = whitespace >> p
+
+ctoken :: Error e => Parser e () -> Parser e a -> Parser e a
+ctoken c p = many (void (satisfy (isSpace)) <|> c) >> p
 
 stoken :: Error e => Parser e a -> Parser e a
 stoken p = many1 ( satisfy (== ' ') )  >> p
