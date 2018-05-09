@@ -17,7 +17,14 @@ genEntry num = do
 genEntries :: Int -> Int -> IO String
 genEntries min max = intercalate "\n\n" <$> mapM genEntry [min..max]
 
+genOther :: FilePath -> IO String
+genOther fp = do
+  text <- readFile $ appelDir ++ fp ++ ".tig"
+  return $ fp ++ "=" ++ show text ++ "\n\n"
+
 main :: IO ()
 main = do
-  text <- genEntries firstTest lastTest
-  writeFile "AppelTigFiles.hs" ("module Spec.AppelTigFiles where \n" ++ text)
+  text  <- genEntries firstTest lastTest
+  queens <- genOther "queens"
+  merge  <- genOther "merge"
+  writeFile "AppelTigFiles.hs" ("module Spec.AppelTigFiles where \n" ++ text ++ "\n\n" ++ queens ++ merge)
