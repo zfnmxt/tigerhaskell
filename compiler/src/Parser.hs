@@ -5,7 +5,7 @@ module Parser where
 import DumbParser
 import TigerDef
 import AST
-import Data.Char (chr)
+import Data.Char (chr, isPrint)
 
 type TigerError = String
 type TigerP = Parser TigerError
@@ -292,12 +292,16 @@ lValueP = do
                 Left id    -> LField lval id
                 Right expr -> LArray lval expr
 
+strExprP' :: TigerP Char
+strExprP' = satisfy (isPrint)
+
 stringExprP :: TigerP Expr
 stringExprP = do
   ctoken' $ char '\"'
-  strs <- many $ listify alphaNum <|> listify (char ' ') <|> escape
+  strs <- many $ listify printable <|> listify (char ' ') <|> escape
   ctoken' $ char '\"'
   return $ SExpr (concat strs)
+    where printable = satisfy (\c -> isPrint c && (c `notElem` ['\"', '\\']))
 
 escapeChar :: TigerP Char
 escapeChar = choice [ string "\\n" >> return '\n'
