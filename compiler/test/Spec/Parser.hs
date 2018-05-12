@@ -294,3 +294,9 @@ appelTests = describe "tests using appel's .tig files" $ do
     testParseE test20 `shouldBe`
       Right (While (BExpr Gt (IExpr 10) (IExpr 5)) exprs)
 
+  it "parses queens" $ do
+    (\x -> case x of {Right _ -> True; Left _ -> False})(testParseE queens) `shouldBe` True
+
+  it "parses merge" $ do
+    (\x -> case x of {Right _ -> True; Left _ -> False})(testParseE merge) `shouldBe` True
+
