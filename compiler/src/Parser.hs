@@ -162,9 +162,9 @@ letExprP = do
   return $ Let decs exprs
 
 decP :: TigerP Dec
-decP = ctoken' $ choice [ TypeDec <$> typeP
+decP = ctoken' $ choice [ TypeDec <$> many1 typeP
                       ,  VarDec <$> varP
-                      ,  FunDec <$> funP
+                      ,  FunDec <$> many1 funP
                       ]
 
 typeP :: TigerP Type
