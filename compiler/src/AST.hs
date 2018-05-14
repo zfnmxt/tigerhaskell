@@ -3,9 +3,9 @@ module AST where
 type Id     = String
 type TypeId = Id
 
-data Dec = TypeDec Type
+data Dec = TypeDec [Type]
          | VarDec Var
-         | FunDec Fun
+         | FunDec [Fun]
          deriving (Show, Eq)
 
 data Type   = Type { typeC :: TypeId
@@ -20,7 +20,7 @@ data TypeBody  = DataConst TypeId
 data TypeField = TypeField { tfId :: Id
                            , tfType  :: TypeId
                            } deriving (Show, Eq)
-(|:) = TypeField 
+(|:) = TypeField
 
 data Var = Var { vId   :: Id
                , vType :: Maybe TypeId
