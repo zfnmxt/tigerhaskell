@@ -150,7 +150,7 @@ forExprP = do
          id <- identifierP
          ctoken' $ string ":="
          expr <- exprP
-         return $ Assign (LId id) expr
+         return $ Assign (SimpleVar id) expr
 
 letExprP :: TigerP Expr
 letExprP = do
@@ -202,16 +202,16 @@ arrayTypeP = do
 typeAnnoP :: TigerP (Maybe TypeId)
 typeAnnoP = maybeP $ (ctoken' (char ':') >> typeIdP)
 
-varP :: TigerP Var
+varP :: TigerP VarDef
 varP = do
   kKeywordP "var"
   id <- identifierP
   typeAnno <- typeAnnoP
   ctoken' $ string ":="
   expr <- exprP
-  return $ Var id typeAnno expr
+  return $ VarDef id typeAnno expr
 
-funP :: TigerP Fun
+funP :: TigerP FunDef
 funP = do
   kKeywordP "function"
   id <- identifierP
@@ -221,7 +221,7 @@ funP = do
   typeAnno <- typeAnnoP
   ctoken' $ char '='
   expr <- exprP
-  return $ Fun id args typeAnno expr
+  return $ FunDef id args typeAnno expr
 
 breakExprP :: TigerP Expr
 breakExprP = kKeywordP "break" >> return Break
@@ -238,7 +238,7 @@ baseExprP = choice
             ]
 
 nilExprP :: TigerP Expr
-nilExprP = kKeywordP "nil" >> return Nil
+nilExprP = kKeywordP "nil" >> return NilExpr
 
 arrayExprP :: TigerP Expr
 arrayExprP = do
@@ -277,20 +277,20 @@ lArrayP = do
   return $ Right expr
 
 lValueExprP :: TigerP Expr
-lValueExprP = LExpr <$> lValueP
+lValueExprP = VExpr <$> lValueP
 
-lValueP :: TigerP LValue
+lValueP :: TigerP Var
 lValueP = do
   id <- identifierP
   rest <- many $ lFieldP <|> lArrayP
-  let lid = LId id
+  let lid = SimpleVar id
   case rest of
     []     -> return $ lid
     rest'  -> return $ foldl f lid rest'
       where f lval next =
               case next of
-                Left id    -> LField lval id
-                Right expr -> LArray lval expr
+                Left id    -> FieldVar lval id
+                Right expr -> ArrayVar lval expr
 
 strExprP' :: TigerP Char
 strExprP' = satisfy (isPrint)

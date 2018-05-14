@@ -112,17 +112,17 @@ baseTests = describe "Basic parser tests" $ do
       Right (While (BExpr Gt (IExpr 1) (IExpr 2)) Break)
 
   it "parses l-values" $ do
-    testParseE "foo123" `shouldBe` Right (LExpr (LId "foo123"))
+    testParseE "foo123" `shouldBe` Right (VExpr (SimpleVar "foo123"))
     testParseE "123foo" `shouldBe` Left ""
-    testParseE "myRecord.foo" `shouldBe` Right (LExpr (LField (LId "myRecord") "foo"))
-    testParseE "myArray[5]" `shouldBe` Right (LExpr (LArray (LId "myArray") (IExpr 5)))
+    testParseE "myRecord.foo" `shouldBe` Right (VExpr (FieldVar (SimpleVar "myRecord") "foo"))
+    testParseE "myArray[5]" `shouldBe` Right (VExpr (ArrayVar (SimpleVar "myArray") (IExpr 5)))
     testParseE "myArray[]" `shouldBe` Left ""
     testParseE "myRecord.myArray[5]" `shouldBe`
-      Right (LExpr (LArray (LField (LId "myRecord") "myArray") (IExpr 5)))
+      Right (VExpr (ArrayVar (FieldVar (SimpleVar "myRecord") "myArray") (IExpr 5)))
 
   it "parses for statements" $ do
     testParseE "for i := 0 to 5 do break" `shouldBe`
-      Right (For (Assign (LId "i") (IExpr 0)) (IExpr 5) Break)
+      Right (For (Assign (SimpleVar "i") (IExpr 0)) (IExpr 5) Break)
 
   it "parses type declarations" $ do
     testParseD "type singletonType = singletonType" `shouldBe`
@@ -135,17 +135,17 @@ baseTests = describe "Basic parser tests" $ do
       Right (TypeDec[Type "emptyRecord" (RecordType [])])
 
   it "parses variable declarations" $ do
-    testParseD "var x := 5" `shouldBe` Right (VarDec (Var "x" Nothing (IExpr 5)))
-    testParseD "var x : int := 5" `shouldBe` Right (VarDec (Var "x" (Just "int") (IExpr 5)))
+    testParseD "var x := 5" `shouldBe` Right (VarDec (VarDef "x" Nothing (IExpr 5)))
+    testParseD "var x : int := 5" `shouldBe` Right (VarDec (VarDef "x" (Just "int") (IExpr 5)))
     testParseD "var x : := 5" `shouldBe` Left ""
 
   it "parses function declarations" $ do
     testParseD "function myFunc() = 5" `shouldBe`
-      Right (FunDec [Fun "myFunc" [] Nothing (IExpr 5)])
+      Right (FunDec [FunDef "myFunc" [] Nothing (IExpr 5)])
     testParseD "function myFunc () : int = 5" `shouldBe`
-      Right (FunDec [Fun "myFunc" [] (Just "int") (IExpr 5)])
+      Right (FunDec [FunDef "myFunc" [] (Just "int") (IExpr 5)])
     testParseD "function myFunc(arg1: int, arg2: string, arg3:foo) : int = 5" `shouldBe`
-      Right (FunDec [Fun "myFunc" ["arg1" |: "int", "arg2" |: "string", "arg3" |: "foo"]
+      Right (FunDec [FunDef "myFunc" ["arg1" |: "int", "arg2" |: "string", "arg3" |: "foo"]
                      (Just "int") (IExpr 5)])
 
   it "parses let statements" $ do
@@ -154,46 +154,46 @@ baseTests = describe "Basic parser tests" $ do
     testParseE "let in end" `shouldBe`
       Right (Let [] [])
     testParseE "let var x := 5 \n var y := 6 in x + y end" `shouldBe`
-      Right (Let [(VarDec (Var "x" Nothing (IExpr 5))), (VarDec (Var "y" Nothing (IExpr 6)))]
-                 [BExpr Add (LExpr (LId "x")) (LExpr (LId "y"))])
+      Right (Let [(VarDec (VarDef "x" Nothing (IExpr 5))), (VarDec (VarDef "y" Nothing (IExpr 6)))]
+                 [BExpr Add (VExpr (SimpleVar "x")) (VExpr (SimpleVar "y"))])
 
 appelTests :: SpecWith ()
 appelTests = describe "tests using appel's .tig files" $ do
   it "parses test1" $ do
     let letDecs = [ TypeDec [Type "arrtype" (ArrayType "int")]
-              , VarDec ( Var "arr1" (Just "arrtype")
+              , VarDec ( VarDef "arr1" (Just "arrtype")
                          (Array "arrtype" (IExpr 10) (IExpr 0))
                        )
               ]
-    testParseE test1 `shouldBe` Right (Let letDecs [(LExpr (LId "arr1"))])
+    testParseE test1 `shouldBe` Right (Let letDecs [(VExpr (SimpleVar "arr1"))])
 
   it "parses test2" $ do
     let letDecs = [ TypeDec [ Type "myint" (DataConst "int")
                             , Type "arrtype" (ArrayType "myint")
                             ]
-                  , VarDec ( Var "arr1" (Just "arrtype")
+                  , VarDec ( VarDef "arr1" (Just "arrtype")
                              (Array "arrtype" (IExpr 10) (IExpr 0))
                            )
                  ]
-    testParseE test2 `shouldBe` Right (Let letDecs [(LExpr (LId "arr1"))])
+    testParseE test2 `shouldBe` Right (Let letDecs [(VExpr (SimpleVar "arr1"))])
 
   it "parses test3" $ do
     let letDecs = [ TypeDec [Type "rectype" (RecordType ["name" |: "string", "age" |: "int"])]
-                  , VarDec ( Var "rec1" (Just "rectype")
+                  , VarDec ( VarDef "rec1" (Just "rectype")
                              (Record "rectype" ["name" |. SExpr "Nobody", "age" |. IExpr 1000])
                            )
                  ]
     testParseE test3 `shouldBe` Right (Let letDecs
-                                          [ Assign (LField (LId "rec1") "name") (SExpr "Somebody"),
-                                            LExpr (LId "rec1")
+                                          [ Assign (FieldVar (SimpleVar "rec1") "name") (SExpr "Somebody"),
+                                            VExpr (SimpleVar "rec1")
                                           ]
                                       )
 
   it "parses test4" $ do
-    let nfactor_body = IfE (BExpr Equal (LExpr (LId "n")) (IExpr 0))
+    let nfactor_body = IfE (BExpr Equal (VExpr (SimpleVar "n")) (IExpr 0))
                            (IExpr 1)
-                           (BExpr Mult (LExpr (LId "n")) (FCall "nfactor" [BExpr Sub (LExpr (LId "n")) (IExpr 1)]))
-    let nfactor = FunDec [Fun "nfactor" ["n" |: "int"] (Just "int") nfactor_body]
+                           (BExpr Mult (VExpr (SimpleVar "n")) (FCall "nfactor" [BExpr Sub (VExpr (SimpleVar "n")) (IExpr 1)]))
+    let nfactor = FunDec [FunDef "nfactor" ["n" |: "int"] (Just "int") nfactor_body]
     testParseE test4 `shouldBe`
       Right (Let [nfactor] [FCall "nfactor" [IExpr 10]])
 
@@ -202,22 +202,22 @@ appelTests = describe "tests using appel's .tig files" $ do
                              , Type "tree" (RecordType ["key" |: "int", "children" |: "treelist"])
                              , Type "treelist" (RecordType ["hd" |: "tree", "tl" |: "treelist"])
                              ]
-    let list      = VarDec (Var "lis" (Just "intlist") (Record "intlist" ["hd" |. IExpr 0, "tl" |. Nil]))
-    testParseE test5 `shouldBe` Right (Let [typeDecs, list] [LExpr (LId "lis")])
+    let list      = VarDec (VarDef "lis" (Just "intlist") (Record "intlist" ["hd" |. IExpr 0, "tl" |. NilExpr]))
+    testParseE test5 `shouldBe` Right (Let [typeDecs, list] [VExpr (SimpleVar "lis")])
 
   it "parses test6" $ do
-    let do_nothings = FunDec [ Fun "do_nothing1" ["a" |: "int", "b" |: "string"] Nothing
-                                 (FCall "do_nothing2" [BExpr Add (LExpr (LId "a")) (IExpr 1)])
-                             , Fun "do_nothing2" ["d" |: "int"] Nothing
-                              (FCall "do_nothing1" [LExpr (LId "d"), SExpr "str"])
+    let do_nothings = FunDec [ FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] Nothing
+                                 (FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)])
+                             , FunDef "do_nothing2" ["d" |: "int"] Nothing
+                              (FCall "do_nothing1" [VExpr (SimpleVar "d"), SExpr "str"])
                              ]
     testParseE test6 `shouldBe` Right(Let [do_nothings] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
   it "parses test7" $ do
-    let do_nothings = FunDec [ Fun "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
-                                 (ExprSeq [FCall "do_nothing2" [BExpr Add (LExpr (LId "a")) (IExpr 1)], IExpr 0])
-                             , Fun "do_nothing2" ["d" |: "int"] (Just "string")
-                              (ExprSeq [FCall "do_nothing1" [LExpr (LId "d"), SExpr "str"], SExpr " "])
+    let do_nothings = FunDec [ FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
+                                 (ExprSeq [FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)], IExpr 0])
+                             , FunDef "do_nothing2" ["d" |: "int"] (Just "string")
+                              (ExprSeq [FCall "do_nothing1" [VExpr (SimpleVar "d"), SExpr "str"], SExpr " "])
                              ]
     testParseE test7 `shouldBe` Right(Let [do_nothings] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
@@ -235,15 +235,15 @@ appelTests = describe "tests using appel's .tig files" $ do
 
   it "parses test11" $ do
     testParseE test11 `shouldBe`
-      Right (For (Assign (LId "i") (IExpr 10)) (SExpr " ")
-              (Assign (LId "i") (BExpr Sub (LExpr (LId "i")) (IExpr 1)))
+      Right (For (Assign (SimpleVar "i") (IExpr 10)) (SExpr " ")
+              (Assign (SimpleVar "i") (BExpr Sub (VExpr (SimpleVar "i")) (IExpr 1)))
             )
 
   it "parses test12" $ do
-    let var = VarDec (Var "a"  Nothing (IExpr 0))
-    let exprs = ExprSeq [Assign (LId "a") (BExpr Add (LExpr (LId "a")) (IExpr 1)), NoValue]
+    let var = VarDec (VarDef "a"  Nothing (IExpr 0))
+    let exprs = ExprSeq [Assign (SimpleVar "a") (BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)), NoValue]
     testParseE test12 `shouldBe`
-      Right (Let [var] [For (Assign (LId "i") (IExpr 0)) (IExpr 100) exprs])
+      Right (Let [var] [For (Assign (SimpleVar "i") (IExpr 0)) (IExpr 100) exprs])
 
   it "parses test13" $ do
     testParseE test13 `shouldBe` Right (BExpr Gt (IExpr 3) (SExpr "df"))
@@ -252,9 +252,9 @@ appelTests = describe "tests using appel's .tig files" $ do
     let typeDecs = TypeDec [ Type "arrtype" (ArrayType "int")
                            , Type "rectype" (RecordType ["name" |: "string", "id" |: "int"])
                            ]
-    let rec'    = VarDec (Var "rec" Nothing (Record "rectype" ["name" |. SExpr "aname", "id" |. IExpr 0]))
-    let arr     = VarDec (Var "arr" Nothing (Array "arrtype" (IExpr 3) (IExpr 0)))
-    let ifexpr  = IfE (BExpr NEqual (LExpr (LId "rec")) (LExpr (LId "arr"))) (IExpr 3) (IExpr 4)
+    let rec'    = VarDec (VarDef "rec" Nothing (Record "rectype" ["name" |. SExpr "aname", "id" |. IExpr 0]))
+    let arr     = VarDec (VarDef "arr" Nothing (Array "arrtype" (IExpr 3) (IExpr 0)))
+    let ifexpr  = IfE (BExpr NEqual (VExpr (SimpleVar "rec")) (VExpr (SimpleVar "arr"))) (IExpr 3) (IExpr 4)
     testParseE test14 `shouldBe`
       Right (Let [typeDecs, rec', arr] [ifexpr])
 
@@ -273,31 +273,31 @@ appelTests = describe "tests using appel's .tig files" $ do
 
   it "parses test17" $ do
     let tree      = TypeDec [Type "tree" (RecordType ["key" |: "int", "children" |: "treelist"])]
-    let d         = VarDec  (Var "d" (Just "int") (IExpr 0))
+    let d         = VarDec  (VarDef "d" (Just "int") (IExpr 0))
     let treelist  = TypeDec [Type "treelist" (RecordType ["hd" |: "tree", "tl" |: "treelist"])]
     testParseE test17 `shouldBe`
-      Right (Let [tree, d, treelist] [LExpr (LId "d")])
+      Right (Let [tree, d, treelist] [VExpr (SimpleVar "d")])
 
   it "parses test18" $ do
-    let do_nothing1 = FunDec [Fun "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
-                              (ExprSeq [FCall "do_nothing2" [BExpr Add (LExpr (LId "a")) (IExpr 1)], IExpr 0])]
-    let d         = VarDec  (Var "d" Nothing (IExpr 0))
-    let do_nothing2 = FunDec [Fun "do_nothing2" ["d" |: "int"] (Just "string")
-                              (ExprSeq [FCall "do_nothing1" [LExpr (LId "d"), SExpr "str"], SExpr " "])]
+    let do_nothing1 = FunDec [FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
+                              (ExprSeq [FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)], IExpr 0])]
+    let d         = VarDec  (VarDef "d" Nothing (IExpr 0))
+    let do_nothing2 = FunDec [FunDef "do_nothing2" ["d" |: "int"] (Just "string")
+                              (ExprSeq [FCall "do_nothing1" [VExpr (SimpleVar "d"), SExpr "str"], SExpr " "])]
     testParseE test18 `shouldBe`
       Right(Let [do_nothing1, d, do_nothing2] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
   it "parses test19" $ do
-    let do_nothings = FunDec [ Fun "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
-                                (ExprSeq [FCall "do_nothing2" [BExpr Add (LExpr (LId "a")) (IExpr 1)], IExpr 0])
-                             , Fun "do_nothing2" ["d" |: "int"] (Just "string")
-                              (ExprSeq [FCall "do_nothing1" [LExpr (LId "a"), SExpr "str"], SExpr " "])
+    let do_nothings = FunDec [ FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
+                                (ExprSeq [FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)], IExpr 0])
+                             , FunDef "do_nothing2" ["d" |: "int"] (Just "string")
+                              (ExprSeq [FCall "do_nothing1" [VExpr (SimpleVar "a"), SExpr "str"], SExpr " "])
                              ]
     testParseE test19 `shouldBe`
       Right(Let [do_nothings] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
   it "parses test20" $ do
-    let exprs = ExprSeq [BExpr Add (LExpr (LId "i")) (IExpr 1), NoValue]
+    let exprs = ExprSeq [BExpr Add (VExpr (SimpleVar "i")) (IExpr 1), NoValue]
     testParseE test20 `shouldBe`
       Right (While (BExpr Gt (IExpr 10) (IExpr 5)) exprs)
 

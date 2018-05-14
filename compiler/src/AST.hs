@@ -4,8 +4,8 @@ type Id     = String
 type TypeId = Id
 
 data Dec = TypeDec [Type]
-         | VarDec Var
-         | FunDec [Fun]
+         | VarDec VarDef
+         | FunDec [FunDef]
          deriving (Show, Eq)
 
 data Type   = Type { typeC :: TypeId
@@ -22,21 +22,21 @@ data TypeField = TypeField { tfId :: Id
                            } deriving (Show, Eq)
 (|:) = TypeField
 
-data Var = Var { vId   :: Id
-               , vType :: Maybe TypeId
-               , vExpr :: Expr
-               } deriving (Show, Eq)
+data VarDef = VarDef { vId   :: Id
+                     , vType :: Maybe TypeId
+                     , vExpr :: Expr
+                     } deriving (Show, Eq)
 
-data Fun = Fun { fId   :: Id
-               , fArgs :: [TypeField]
-               , fType :: Maybe TypeId
-               , fExpr :: Expr
-               } deriving (Show, Eq)
+data FunDef = FunDef { fId   :: Id
+                     , fArgs :: [TypeField]
+                     , fType :: Maybe TypeId
+                     , fExpr :: Expr
+                     } deriving (Show, Eq)
 
-data LValue = LId Id
-            | LField LValue Id
-            | LArray LValue Expr
-            deriving (Show, Eq)
+data Var = SimpleVar Id
+           | FieldVar Var Id
+           | ArrayVar Var Expr
+           deriving (Show, Eq)
 
 data BOp = Add | Sub | Mult | Div | Equal | NEqual
          | Gt | Lt | GTE | LTE | And | Or
@@ -55,8 +55,8 @@ data RecordField = RecordField { rfId   :: Id
 
 (|.) = RecordField
 
-data Expr = LExpr LValue
-          | Nil
+data Expr = VExpr Var
+          | NilExpr
           | ExprSeq [Expr]
           | NoValue
           | IExpr Integer
@@ -65,7 +65,7 @@ data Expr = LExpr LValue
           | NExpr Expr
           | Record TypeId [RecordField]
           | Array TypeId Expr Expr
-          | Assign LValue Expr
+          | Assign Var Expr
           | IfE Expr Expr Expr
           | If Expr Expr
           | While Expr Expr
