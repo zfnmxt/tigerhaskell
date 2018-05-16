@@ -9,3 +9,4 @@ data Ty = Int
         | Nil
         | Unit
         | Name Id (Maybe Ty)
+        deriving (Show, Eq)
