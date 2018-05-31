@@ -4,10 +4,11 @@ module TypeChecker where
 
 import AST
 import Types
-import qualified Data.Map.Strict as M
-import Data.Map.Strict (Map)
-import qualified Control.Monad.State.Strict as S
-import Control.Monad.State.Strict (StateT, lift, runStateT)
+import qualified Data.Map.Lazy as M
+import Data.Map.Lazy (Map)
+import qualified Control.Monad.State.Lazy as S
+import Control.Monad.State.Lazy (StateT, lift, runStateT)
+import qualified Data.List as L
 
 
 data VEnvEntry = VarEntry {ty :: Ty}
@@ -21,9 +22,26 @@ type TEnv = Map TypeId Ty
 type Env  = (VEnv, TEnv)
 
 type TError = String
-type CheckerState = StateT Env (Either TError) TExprTy
+type CheckerState = StateT Env (Either TError) 
 
-genError :: Expr -> String -> TError
+insertVar :: Id -> Ty -> CheckerState ()
+insertVar id t = do
+  (venv, tenv) <- S.get
+  S.put (M.insert id (VarEntry t) venv, tenv)
+
+lookupTy :: TypeId -> CheckerState Ty
+lookupTy tId = do
+  (_, tenv) <- S.get
+  case M.lookup tId tenv of
+    Just t  -> return t
+    Nothing -> lift . Left $ genError tId "type not found"
+
+insertTy :: TypeId -> Ty -> CheckerState ()
+insertTy typeId ty = do
+  (venv, tenv) <- S.get
+  S.put (venv, M.insert typeId ty tenv)
+
+genError :: Show a => a -> String -> TError
 genError expr s = "Error in expr:\n" ++ show expr ++ "\n with error msg: " ++ s
                           --
 baseTEnv = M.fromList [("int", Int), ("string", String)]
@@ -41,47 +59,88 @@ baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit)
 
 initEnv = (baseVEnv, baseTEnv)
 
-transExpr :: Expr -> CheckerState
+transExpr :: Expr -> CheckerState Ty
 transExpr expr =
   case expr of
     BExpr _ _ _ -> transBExpr expr
-    IExpr _     -> lift . Right $ ((), Int)
-    SExpr _     -> lift . Right $ ((), String)
+    IExpr _     -> lift . Right $ Int
+    SExpr _     -> lift . Right $ String
     NExpr _     -> transNExpr expr
     VExpr _     -> transVExpr expr
 
-transBExpr :: Expr -> CheckerState
+transBExpr :: Expr -> CheckerState Ty
 transBExpr expr@(BExpr op l r)
   | op `elem` [Add, Sub, Mult, Div, And, Or] = do
-     (_, lType) <- transExpr l
-     (_, rType) <- transExpr r
+     lType <- transExpr l
+     rType <- transExpr r
      case (lType, rType) of
-       (Int, Int) -> lift . Right $ ((), Int)
+       (Int, Int) -> lift . Right $ Int
        _          -> lift . Left $ genError expr "int required"
   | op `elem` [Equal, NEqual, Gt, Lt, GTE, LTE] = do
-     (_, lType) <- transExpr l
-     (_, rType) <- transExpr r
+     lType <- transExpr l
+     rType <- transExpr r
      case (lType, rType) of
-       (Int, Int)       -> lift . Right $ ((), Int)
-       (String, String) -> lift . Right $ ((), Int)
+       (Int, Int)       -> lift . Right $ Int
+       (String, String) -> lift . Right $ Int
        _                -> lift . Left $ genError expr "ints or strings required"
 
-transNExpr :: Expr -> CheckerState
+transNExpr :: Expr -> CheckerState Ty
 transNExpr nExpr@(NExpr expr) = do
-  (_, eType) <- transExpr expr
+  eType <- transExpr expr
   case eType of
-    Int -> lift . Right $ ((), Int)
+    Int -> lift . Right $ Int
     _   -> lift . Left $ genError nExpr "int required"
 
-transVExpr :: Expr -> CheckerState
-transVExpr vExpr@(VExpr var) = do
+transVExpr :: Expr -> CheckerState Ty
+transVExpr (VExpr var) = typeCheckVar var
+
+typeCheckVar :: Var -> CheckerState Ty
+typeCheckVar var = do
   case var of
-    SimpleVar x -> do
+    SimpleVar v -> do
       (vEnv, _tEnv) <- S.get
-      case M.lookup x vEnv of
-        Just (VarEntry vType) -> lift . Right $ ((), vType)
-        Just (FunEntry _ _  ) -> lift . Left $ genError vExpr "function with same name exists"
-        _                     -> lift . Left $ genError vExpr "undefined var"
+      case M.lookup v vEnv of
+        Just (VarEntry vType) -> lift . Right $ vType
+        Just (FunEntry _ _  ) -> lift . Left $ genError var "function with same name exists"
+        _                     -> lift . Left $ genError var "undefined var"
+
+    FieldVar r field -> do
+      Record fieldTypes <- typeCheckVar r
+      case L.lookup field fieldTypes of
+        Nothing    -> lift . Left $ genError var "field does not exist in record"
+        Just fType -> lift . Right $ fType
+
+    ArrayVar a _ -> typeCheckVar a
+
+transDec :: Dec -> CheckerState ()
+transDec (VarDec v) =
+  case vType v of
+    Nothing -> do
+      t <- transExpr (vExpr v)
+      insertVar (vId v) t
+    Just tId  -> do
+      t  <- transExpr (vExpr v)
+      t' <- lookupTy tId
+      case t of
+        Nil -> case t' of
+                 Record _ -> insertVar (vId v) t'
+                 _        -> lift . Left $ genError v "expressions of type nil must be constrained to records"
+        _   -> if t == t'
+               then insertVar (vId v) t'
+               else lift . Left $ genError v "var type does not match expression type"
+
+transDec (TypeDec tys) = mapM addTy tys >> return ()
+    where addTy t@(Type tyC tyBody) =
+            case tyBody of
+              DataConst tyId      -> lookupTy tyId >> return ()
+              RecordType tyFields -> do
+                (venv, tenv) <- S.get
+                let f (TypeField id fTy) = (\ty -> (id, ty)) <$> M.lookup fTy tenv
+                case mapM f tyFields of
+                  Just tyPairs -> insertTy tyC $ Record tyPairs
+                  Nothing      -> lift . Left $ genError t "record has invalid fields"
+              ArrayType tyId      -> lookupTy tyId >> return ()
+
 
 
 

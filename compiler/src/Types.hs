@@ -8,5 +8,4 @@ data Ty = Int
         | Array Ty
         | Nil
         | Unit
-        | Name Id (Maybe Ty)
         deriving (Show, Eq)
