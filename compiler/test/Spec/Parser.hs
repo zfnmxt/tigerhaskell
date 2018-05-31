@@ -180,7 +180,7 @@ appelTests = describe "tests using appel's .tig files" $ do
   it "parses test3" $ do
     let letDecs = [ TypeDec [Type "rectype" (RecordType ["name" |: "string", "age" |: "int"])]
                   , VarDec ( VarDef "rec1" (Just "rectype")
-                             (Record "rectype" ["name" |. SExpr "Nobody", "age" |. IExpr 1000])
+                             (RecordExpr "rectype" ["name" |. SExpr "Nobody", "age" |. IExpr 1000])
                            )
                  ]
     testParseE test3 `shouldBe` Right (Let letDecs
@@ -202,7 +202,7 @@ appelTests = describe "tests using appel's .tig files" $ do
                              , Type "tree" (RecordType ["key" |: "int", "children" |: "treelist"])
                              , Type "treelist" (RecordType ["hd" |: "tree", "tl" |: "treelist"])
                              ]
-    let list      = VarDec (VarDef "lis" (Just "intlist") (Record "intlist" ["hd" |. IExpr 0, "tl" |. NilExpr]))
+    let list      = VarDec (VarDef "lis" (Just "intlist") (RecordExpr "intlist" ["hd" |. IExpr 0, "tl" |. NilExpr]))
     testParseE test5 `shouldBe` Right (Let [typeDecs, list] [VExpr (SimpleVar "lis")])
 
   it "parses test6" $ do
@@ -252,7 +252,7 @@ appelTests = describe "tests using appel's .tig files" $ do
     let typeDecs = TypeDec [ Type "arrtype" (ArrayType "int")
                            , Type "rectype" (RecordType ["name" |: "string", "id" |: "int"])
                            ]
-    let rec'    = VarDec (VarDef "rec" Nothing (Record "rectype" ["name" |. SExpr "aname", "id" |. IExpr 0]))
+    let rec'    = VarDec (VarDef "rec" Nothing (RecordExpr "rectype" ["name" |. SExpr "aname", "id" |. IExpr 0]))
     let arr     = VarDec (VarDef "arr" Nothing (Array "arrtype" (IExpr 3) (IExpr 0)))
     let ifexpr  = IfE (BExpr NEqual (VExpr (SimpleVar "rec")) (VExpr (SimpleVar "arr"))) (IExpr 3) (IExpr 4)
     testParseE test14 `shouldBe`

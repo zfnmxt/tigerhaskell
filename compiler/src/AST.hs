@@ -63,7 +63,7 @@ data Expr = VExpr Var
           | SExpr String
           | BExpr BOp Expr Expr
           | NExpr Expr
-          | Record TypeId [RecordField]
+          | RecordExpr TypeId [RecordField]
           | Array TypeId Expr Expr
           | Assign Var Expr
           | IfE Expr Expr Expr
