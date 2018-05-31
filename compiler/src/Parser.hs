@@ -256,7 +256,7 @@ recordExprP = do
   ctoken' $ char '{'
   fields <- sepBy1 fieldP (char ',')
   ctoken' $ char '}'
-  return $ Record type' fields
+  return $ RecordExpr type' fields
   where fieldP = do
           id <- identifierP
           char '='
