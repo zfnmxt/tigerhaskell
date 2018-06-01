@@ -162,7 +162,7 @@ appelTests = describe "tests using appel's .tig files" $ do
   it "parses test1" $ do
     let letDecs = [ TypeDec [Type "arrtype" (ArrayType "int")]
               , VarDec ( VarDef "arr1" (Just "arrtype")
-                         (Array "arrtype" (IExpr 10) (IExpr 0))
+                         (ArrayExpr "arrtype" (IExpr 10) (IExpr 0))
                        )
               ]
     testParseE test1 `shouldBe` Right (Let letDecs [(VExpr (SimpleVar "arr1"))])
@@ -172,7 +172,7 @@ appelTests = describe "tests using appel's .tig files" $ do
                             , Type "arrtype" (ArrayType "myint")
                             ]
                   , VarDec ( VarDef "arr1" (Just "arrtype")
-                             (Array "arrtype" (IExpr 10) (IExpr 0))
+                             (ArrayExpr "arrtype" (IExpr 10) (IExpr 0))
                            )
                  ]
     testParseE test2 `shouldBe` Right (Let letDecs [(VExpr (SimpleVar "arr1"))])
@@ -253,7 +253,7 @@ appelTests = describe "tests using appel's .tig files" $ do
                            , Type "rectype" (RecordType ["name" |: "string", "id" |: "int"])
                            ]
     let rec'    = VarDec (VarDef "rec" Nothing (RecordExpr "rectype" ["name" |. SExpr "aname", "id" |. IExpr 0]))
-    let arr     = VarDec (VarDef "arr" Nothing (Array "arrtype" (IExpr 3) (IExpr 0)))
+    let arr     = VarDec (VarDef "arr" Nothing (ArrayExpr "arrtype" (IExpr 3) (IExpr 0)))
     let ifexpr  = IfE (BExpr NEqual (VExpr (SimpleVar "rec")) (VExpr (SimpleVar "arr"))) (IExpr 3) (IExpr 4)
     testParseE test14 `shouldBe`
       Right (Let [typeDecs, rec', arr] [ifexpr])
