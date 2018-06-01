@@ -248,7 +248,7 @@ arrayExprP = do
   ctoken' $ char ']'
   kKeywordP "of"
   v <- exprP
-  return $ Array type' n v
+  return $ ArrayExpr type' n v
 
 recordExprP :: TigerP Expr
 recordExprP = do
