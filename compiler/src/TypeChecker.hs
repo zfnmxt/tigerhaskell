@@ -35,6 +35,22 @@ insertFun id argsTy resTy = do
   (venv, tenv) <- S.get
   S.put (M.insert id (FunEntry argsTy resTy) venv, tenv)
 
+lookupVar :: Id -> CheckerState VEnvEntry
+lookupVar id = do
+  (venv, _) <- S.get
+  case M.lookup id venv of
+    Just (VarEntry t)   -> return (VarEntry t)
+    Just (FunEntry _ _) -> lift . Left $ genError id "found function instead of var"
+    Nothing             -> lift . Left $ genError id "var not found"
+
+lookupFun :: Id -> CheckerState VEnvEntry
+lookupFun id = do
+  (venv, _) <- S.get
+  case M.lookup id venv of
+    Just (VarEntry _ )           -> lift . Left $ genError id "found var instead of function"
+    Just (FunEntry argTys retTy) -> return (FunEntry argTys retTy)
+    Nothing                      -> lift . Left $ genError id "var not found"
+
 lookupTy :: TypeId -> CheckerState Ty
 lookupTy tId = do
   (_, tenv) <- S.get
@@ -66,17 +82,19 @@ baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit)
 initEnv = (baseVEnv, baseTEnv)
 
 transExpr :: Expr -> CheckerState TExprTy
-transExpr expr =
-  case expr of
-    VExpr _     -> transVExpr expr
-    NilExpr     -> return ((), Nil)
-    BExpr _ _ _ -> transBExpr expr
-    IExpr _     -> return ((), Int)
-    SExpr _     -> return ((), String)
-    NExpr _     -> transNExpr expr
+transExpr (NilExpr) = return ((), Nil)
+transExpr (IExpr _) = return ((), Int)
+transExpr (SExpr _) = return ((), String)
+transExpr (Break)   = return ((), Unit)
+transExpr (VExpr var) = fmap (\ty -> ((), ty)) $ typeCheckVar var
 
-transBExpr :: Expr -> CheckerState TExprTy
-transBExpr expr@(BExpr op l r)
+transExpr nExpr@(NExpr expr) = do
+  (_, eType) <- transExpr expr
+  case eType of
+    Int -> return ((), Int)
+    _   -> lift . Left $ genError nExpr "int required"
+
+transExpr expr@(BExpr op l r)
   | op `elem` [Add, Sub, Mult, Div, And, Or] = do
      (_, lType) <- transExpr l
      (_, rType) <- transExpr r
@@ -91,15 +109,60 @@ transBExpr expr@(BExpr op l r)
        (String, String) -> lift . Right $ ((), Int)
        _                -> lift . Left $ genError expr "ints or strings required"
 
-transNExpr :: Expr -> CheckerState TExprTy
-transNExpr nExpr@(NExpr expr) = do
-  (_, eType) <- transExpr expr
-  case eType of
-    Int -> return ((), Int)
-    _   -> lift . Left $ genError nExpr "int required"
+transExpr expr@(If cond body) = do
+    (_, condT) <- transExpr cond
+    (_, bodyT) <- transExpr body
+    case condT of
+      Int -> case bodyT of
+                   Unit -> return ((), Unit)
+                   _    -> lift . Left $ genError expr "body of if expression must return no value"
+      _   -> lift . Left $ genError expr "cond of if expression must have type int"
 
-transVExpr :: Expr -> CheckerState TExprTy
-transVExpr (VExpr var) = fmap (\ty -> ((), ty)) $ typeCheckVar var
+transExpr expr@(IfE cond body1 body2) = do
+    (_, condT)  <- transExpr cond
+    (_, body1T) <- transExpr body1
+    (_, body2T) <- transExpr body2
+    case condT of
+      Int -> case (body1T, body2T) of
+                (Unit, Unit) -> return ((), Unit)
+                _            -> lift . Left $ genError expr "body of if expression must return no value"
+      _        -> lift . Left $ genError expr "cond of if expression must have type int"
+transExpr expr@(While cond body) = do
+    (_, condT) <- transExpr cond
+    (_, bodyT) <- transExpr body
+    case condT of
+      Int -> case bodyT of
+                Unit -> return ((), Unit)
+                _    -> lift . Left $ genError expr "body of while expression must return no value"
+      _   -> lift . Left $ genError expr "cond of while expression must have type int"
+
+transExpr expr@(For (Assign (SimpleVar x) min) max body) = do
+  (_, minT)   <- transExpr min
+  (_, maxT)   <- transExpr max
+  oldEnv <- S.get
+  transDec (VarDec (VarDef x Nothing min))
+  (_, bodyT)  <- transExpr body
+  case (minT, maxT) of
+    (Int, Int) -> case bodyT of
+                     Unit -> return ((), Unit)
+                     _    -> lift . Left $ genError expr "body of for-exprresion must return no value"
+    _          -> lift . Left $ genError expr "bounds of for-expression must have type int"
+
+transExpr expr@(Let decs exprs) = do
+  oldEnv <- S.get
+  mapM transDec decs
+  exprTys <- mapM transExpr exprs
+  S.put oldEnv
+  return $ last exprTys
+
+transExpr expr@(FCall f args) = do
+  oldEnv <- S.get
+  (FunEntry argTys retTy) <- lookupFun f
+  passedArgTys <- mapM (\a -> snd <$> transExpr a) args
+  if passedArgTys == argTys
+  then S.put oldEnv >> return ((), retTy)
+  else S.put oldEnv >> (lift . Left $ genError expr "args don't match argtype of function")
+
 
 typeCheckVar :: Var -> CheckerState Ty
 typeCheckVar var = do
@@ -133,7 +196,7 @@ transDec (VarDec v) =
       else insertVar (vId v) t
     Just tId  -> do
       (_, t)  <- transExpr (vExpr v)
-      t' <- lookupTy tId
+      t'      <- lookupTy tId
       case t of
         Nil -> case t' of
                  Record _ -> insertVar (vId v) t'
@@ -144,9 +207,9 @@ transDec (VarDec v) =
 transDec (TypeDec tys) = mapM addTy tys >> return ()
     where addTy t@(Type tyC tyBody) =
             case tyBody of
-              DataConst tyId      -> lookupTy tyId >> return ()
+              DataConst tyId      -> lookupTy tyId >>= \t -> insertTy tyC t
               RecordType tyFields -> typeFieldCheck tyFields (\tyPairs -> insertTy tyC (Record tyPairs))
-              ArrayType tyId      -> lookupTy tyId >> return ()
+              ArrayType tyId      -> lookupTy tyId >>= \t -> insertTy tyC (Array t)
 
 transDec (FunDec fs) = mapM addF fs >> return ()
   where addF f@(FunDef funId args resType body) = do
