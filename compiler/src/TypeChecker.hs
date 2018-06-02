@@ -88,6 +88,35 @@ transExpr (SExpr _) = return ((), String)
 transExpr (Break)   = return ((), Unit)
 transExpr (VExpr var) = fmap (\ty -> ((), ty)) $ typeCheckVar var
 
+transExpr expr@(ExprSeq exprs) = do
+  tys <- mapM transExpr exprs
+  return $ last tys
+
+transExpr expr@(RecordExpr tId fields) = do
+  recT       <- lookupTy tId
+  case recT of
+   Record fieldTs -> do
+            let mapFunc (RecordField fid fexp, (fname, ftype)) = do
+                  (_, dType) <- transExpr fexp
+                  return $ (fname == fid) && (ftype == dType)
+            nameTypeChecks <- sequence $ map mapFunc (zip fields fieldTs)
+            if and nameTypeChecks
+            then return ((), recT)
+            else lift . Left $ genError expr "field name or type don't match with declared record type"
+   _              -> lift . Left $ genError expr "type of expr not a record type"
+
+transExpr expr@(ArrayExpr tId n v) = do
+  arrayT  <- lookupTy tId
+  (_, nT) <- transExpr n
+  (_, vT) <- transExpr v
+  case arrayT of
+    Array t -> if nT == Int
+               then if vT == t
+                    then return ((), arrayT)
+                    else lift . Left $ genError expr $ "v should have type " ++ show t
+               else lift . Left $ genError expr "n must have type int"
+    _       -> lift . Left $ genError expr "type of array expr isn't an array type"
+
 transExpr nExpr@(NExpr expr) = do
   (_, eType) <- transExpr expr
   case eType of
