@@ -216,7 +216,29 @@ typeCheckVar var = do
         _       -> lift . Left $ genError var "not an array type"
 
 transDec :: Dec -> CheckerState ()
-transDec (VarDec v) =
+transDec d = transDecHeader d >> transDecBody d
+
+transDecHeader :: Dec -> CheckerState ()
+transDecHeader (VarDec v) = return ()
+transDecHeader (TypeDec tys) = mapM addTy tys >> return ()
+    where addTy t@(Type tyC tyBody) =
+            case tyBody of
+              DataConst tyId      -> lookupTy tyId >>= \t -> insertTy tyC t
+              RecordType tyFields -> insertTy tyC (Record [])
+              ArrayType tyId      -> lookupTy tyId >>= \t -> insertTy tyC (Array t)
+
+transDecHeader (FunDec fs) = mapM addF fs >> return ()
+  where addF f@(FunDef funId args resType body) = do
+          argTyPairs <- typeFieldCheck args return
+          let argTys = map snd argTyPairs
+          resTy <- case resType of
+                     Nothing       -> return Unit
+                     Just resType' -> lookupTy resType'
+          insertFun funId argTys resTy
+          return ()
+
+transDecBody :: Dec -> CheckerState ()
+transDecBody (VarDec v) =
   case vType v of
     Nothing -> do
       (_, t) <- transExpr (vExpr v)
@@ -233,26 +255,20 @@ transDec (VarDec v) =
         _   -> if t == t'
                then insertVar (vId v) t'
                else lift . Left $ genError v "var type does not match expression type"
-transDec (TypeDec tys) = mapM addTy tys >> return ()
+transDecBody (TypeDec tys) = mapM addTy tys >> return ()
     where addTy t@(Type tyC tyBody) =
             case tyBody of
-              DataConst tyId      -> lookupTy tyId >>= \t -> insertTy tyC t
               RecordType tyFields -> typeFieldCheck tyFields (\tyPairs -> insertTy tyC (Record tyPairs))
-              ArrayType tyId      -> lookupTy tyId >>= \t -> insertTy tyC (Array t)
-
-transDec (FunDec fs) = mapM addF fs >> return ()
+              _                   -> return ()
+transDecBody (FunDec fs) = mapM addF fs >> return ()
   where addF f@(FunDef funId args resType body) = do
+          FunEntry _ resTy <- lookupFun funId
           argTyPairs <- typeFieldCheck args return
-          let argTys = map snd argTyPairs
-          resTy <- case resType of
-                     Nothing       -> return Unit
-                     Just resType' -> lookupTy resType'
-          insertFun funId argTys resTy
-          (venv',_) <- S.get
+          oldEnv <- S.get
           mapM (\(id, ty) -> insertTy id ty) argTyPairs
           (_, tBody) <- transExpr body
           if tBody == resTy
-          then return ()
+          then S.put oldEnv
           else lift . Left $ genError f "res type doesn't match the type of the body"
 
 typeFieldCheck :: [TypeField] -> ([(Id, Ty)] -> CheckerState a) -> CheckerState a
