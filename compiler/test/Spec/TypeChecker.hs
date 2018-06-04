@@ -124,3 +124,59 @@ baseTests = describe "Basic type checker tests" $ do
                        (If (BExpr Equal (IExpr 1) (IExpr 1)) Break)]
     let Right vEnv = fst <$> execStateT (transDec fDec) initEnv
     M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] Unit)
+
+  it "accepts well-typed if statements" $ do
+    getTy (transExpr  (If (IExpr 0) Break)) `shouldBe` Right Unit
+
+  it "accepts well-typed ifE statements" $ do
+    getTy (transExpr  (IfE (IExpr 0) Break Break)) `shouldBe` Right Unit
+
+  it "rejects bad if statements" $ do
+    let s = execStateT (transExpr (If (IExpr 0) (IExpr 1))) initEnv
+    isLeft s `shouldBe` True
+
+  it "accepts well-typed While statements" $ do
+    getTy (transExpr  (While (IExpr 0) Break )) `shouldBe` Right Unit
+
+  it "accepts well-typed For statements" $ do
+    getTy (transExpr  (For (Assign (SimpleVar "x") (IExpr 0)) (IExpr 5) Break)) `shouldBe` Right Unit
+
+  it "correctly binds type decs in let expressions" $ do
+     let tDec       = TypeDec [Type "fooT" (DataConst "int")]
+     let tDec2      = TypeDec [Type "derpT" (DataConst "fooT")]
+     let vDec       = VarDec $ VarDef "x" (Just "derpT") (IExpr 5)
+     let letExpr    = Let [tDec, tDec2, vDec] [VExpr (SimpleVar "x")]
+     getTy (transExpr letExpr) `shouldBe` Right Int
+
+  it "correctly binds function decs in let expressions" $ do
+     let tDec       = TypeDec [Type "fooT" (DataConst "int")]
+     let vDec       = VarDec $ VarDef "x" (Just "fooT") (IExpr 5)
+     let fDec       = FunDec [FunDef "f" ["x" |: "fooT", "y" |: "string"] (Just "fooT") (VExpr (SimpleVar "x"))]
+     let letExpr    = Let [tDec, vDec, fDec] [FCall "f" [IExpr 1, SExpr "blah"]]
+     getTy (transExpr letExpr) `shouldBe` Right Int
+
+  it "correctly checks mutually-recursive function declarations" $ do
+     let fDec    = FunDec [ FunDef "f" ["x" |: "int"] (Just "int") (FCall "g" [IExpr 1])
+                          , FunDef "g" ["x" |: "int"] (Just "int") (FCall "f" [IExpr 1])
+                          ]
+     let letExpr = Let [fDec] [FCall "g" [IExpr 1]]
+     getTy (transExpr letExpr) `shouldBe` Right Int
+
+  it "correctly checks mutually-recursive record type declarations" $ do
+     let tDec = TypeDec [Type "rec1" (RecordType ["field1" |: "int", "field2" |: "rec2"])
+                        ,Type "rec2" (RecordType ["field1" |: "int", "field2" |: "rec1"])
+                        ]
+     let letExpr = Let [tDec] [IExpr 1]
+     getTy (transExpr letExpr) `shouldBe` Right Int
+
+  it "correctly checks recursive function declarations" $ do
+     let fDec    = FunDec [ FunDef "f" ["x" |: "int"] (Just "int") (FCall "f" [IExpr 1])
+                          ]
+     let letExpr = Let [fDec] [FCall "f" [IExpr 1]]
+     getTy (transExpr letExpr) `shouldBe` Right Int
+
+  it "correctly checks recursive record type declarations" $ do
+     let tDec = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "recT"])
+                        ]
+     let letExpr = Let [tDec] [IExpr 1]
+     getTy (transExpr letExpr) `shouldBe` Right Int
