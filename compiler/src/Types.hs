@@ -2,14 +2,12 @@ module Types where
 
 import AST
 
-type Unique = Int
 data Ty = Int
         | String
-        | Record [(Id, Ty)] Unique
-        | Array Ty Unique
+        | Record TypeId (Maybe [(Id, Ty)])
+        | Array  TypeId Ty
         | Nil
         | Unit
-        | Rec TypeId
         deriving (Show, Eq)
 
 
