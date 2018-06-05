@@ -2,22 +2,22 @@ module Types where
 
 import AST
 
+type Unique = Int
 data Ty = Int
         | String
-        | Record [(Id, Ty)]
-        | Array Ty
+        | Record [(Id, Ty)] Unique
+        | Array Ty Unique
         | Nil
         | Unit
         deriving (Show, Eq)
 
 
 (|>) :: Ty -> Ty -> Bool
-Nil |> Record _        = True
-Record xs |> Record ys = length xs == length ys
-                         && and (zipWith (\(idx, tx) (idy, ty) -> (idx == idy) && (tx |> ty)) xs ys)
+Nil |> Record _ _      = True
+Record xs ux |> Record ys uy = Record xs ux == Record ys uy
 Int |> Int             = True
 String |> String       = True
-Array x |> Array y     = x |> y
+Array x ux |> Array y uy    = Array x ux == Array y uy
 Nil |> Nil             = True
 Unit |> Unit           = True
 _ |> _                 = False
