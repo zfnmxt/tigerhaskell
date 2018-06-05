@@ -13,7 +13,7 @@ data Ty = Int
 
 (:>) :: Ty -> Ty -> Bool
 Nil :> Record _      = True
-Record _ :> Record _ = True
+Record x :> Record y = x :> y
 Int :> Int           = True
 String :> Stirng     = True
 Array x :> Array y   = x :> y
