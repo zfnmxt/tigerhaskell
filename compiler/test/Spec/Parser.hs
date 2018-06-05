@@ -158,7 +158,7 @@ baseTests = describe "Basic parser tests" $ do
                  [BExpr Add (VExpr (SimpleVar "x")) (VExpr (SimpleVar "y"))])
 
 appelTests :: SpecWith ()
-appelTests = describe "tests using appel's .tig files" $ do
+appelTests = describe "Parser tests using (some) of appel's .tig files" $ do
   it "parses test1" $ do
     let letDecs = [ TypeDec [Type "arrtype" (ArrayType "int")]
               , VarDec ( VarDef "arr1" (Just "arrtype")
