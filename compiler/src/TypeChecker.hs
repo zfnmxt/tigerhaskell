@@ -94,11 +94,15 @@ lookupTy tId = do
 --------------------------------------------------------------------------------
 -- Expression transformation and type checking
 --------------------------------------------------------------------------------
+transExprB :: Expr -> CheckerState TExprTy
+transExprB Break = return ((), Unit)
+transExprB expr  = transExpr expr
+
 transExpr :: Expr -> CheckerState TExprTy
 transExpr (NilExpr)   = return ((), Nil)
 transExpr (IExpr _)   = return ((), Int)
 transExpr (SExpr _)   = return ((), String)
-transExpr (Break)     = return ((), Unit)
+transExpr Break       = genError Break "Breaks must be confined to for and while loops"
 transExpr (VExpr var) = fmap (\ty -> ((), ty)) $ typeCheckVar var
 transExpr expr@(Assign v exp) = do
   (_, vTy) <- transExpr (VExpr v)
@@ -197,7 +201,7 @@ transExpr expr@(IfE cond body1 body2) = do
 
 transExpr expr@(While cond body) = do
     (_, condT) <- transExpr cond
-    (_, bodyT) <- transExpr body
+    (_, bodyT) <- transExprB body
     case condT of
       Int -> case bodyT of
                 Unit -> return ((), Unit)
@@ -209,7 +213,7 @@ transExpr expr@(For (Assign (SimpleVar x) min) max body) = do
   (_, maxT)   <- transExpr max
   oldEnv <- S.get
   transDec (VarDec (VarDef x Nothing min))
-  (_, bodyT)  <- transExpr body
+  (_, bodyT)  <- transExprB body
   case (minT, maxT) of
     (Int, Int) -> case bodyT of
                      Unit -> return ((), Unit)
