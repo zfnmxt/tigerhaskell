@@ -11,12 +11,12 @@ data Ty = Int
         deriving (Show, Eq)
 
 
-(:>) :: Ty -> Ty -> Bool
-Nil :> Record _      = True
-Record x :> Record y = x :> y
-Int :> Int           = True
-String :> Stirng     = True
-Array x :> Array y   = x :> y
-Nil :> Nil           = True
-Unit :> Unit         = True
+(|>) :: Ty -> Ty -> Bool
+Nil |> Record _      = True
+Record xs |> Record ys = and $ zipWith (\(_, tx) (_, ty) -> tx |> ty) xs ys
+Int |> Int           = True
+String |> String     = True
+Array x |> Array y   = x |> y
+Nil |> Nil           = True
+Unit |> Unit         = True
 
