@@ -8,16 +8,15 @@ data Ty = Int
         | Array Ty
         | Nil
         | Unit
-        deriving (Show)
+        deriving (Show, Eq)
 
 
-instance Eq Ty where
-  Nil == Record _        = True
-  Record _ == Nil        = True
-  Int == Int             = True
-  String == String       = True
-  Array x == Array y     = x == y
-  Nil == Nil             = True
-  Record xs == Record ys = xs == ys
-  Unit == Unit           = True
-  _ == _                 = False
+(:>) :: Ty -> Ty -> Bool
+Nil :> Record _      = True
+Record _ :> Record _ = True
+Int :> Int           = True
+String :> Stirng     = True
+Array x :> Array y   = x :> y
+Nil :> Nil           = True
+Unit :> Unit         = True
+
