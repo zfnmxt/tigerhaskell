@@ -103,7 +103,7 @@ negExprP = (ctoken' (char '-') >> NExpr <$> primaryP )
            <|> parenP
 
 parenP :: TigerP Expr
-parenP = between (ctoken' (char '(')) (ctoken' (char ')')) (exprP <|> return NoValue)
+parenP = between (ctoken' (char '(')) (ctoken' (char ')')) (exprP <|> return UnitExpr)
          <|> primaryP
 
 primaryP :: TigerP Expr

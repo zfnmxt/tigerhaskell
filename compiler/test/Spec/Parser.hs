@@ -47,7 +47,7 @@ baseTests = describe "Basic parser tests" $ do
     testParseE "55" `shouldBe` Right (IExpr 55)
 
   it "parses no value" $ do
-    testParseE "()" `shouldBe` Right NoValue
+    testParseE "()" `shouldBe` Right UnitExpr
 
   it "parses negation" $ do
     testParseE "-55" `shouldBe` Right (NExpr (IExpr 55))
@@ -241,7 +241,7 @@ appelTests = describe "tests using appel's .tig files" $ do
 
   it "parses test12" $ do
     let var = VarDec (VarDef "a"  Nothing (IExpr 0))
-    let exprs = ExprSeq [Assign (SimpleVar "a") (BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)), NoValue]
+    let exprs = ExprSeq [Assign (SimpleVar "a") (BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)), UnitExpr]
     testParseE test12 `shouldBe`
       Right (Let [var] [For (Assign (SimpleVar "i") (IExpr 0)) (IExpr 100) exprs])
 
@@ -297,7 +297,7 @@ appelTests = describe "tests using appel's .tig files" $ do
       Right(Let [do_nothings] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
   it "parses test20" $ do
-    let exprs = ExprSeq [BExpr Add (VExpr (SimpleVar "i")) (IExpr 1), NoValue]
+    let exprs = ExprSeq [BExpr Add (VExpr (SimpleVar "i")) (IExpr 1), UnitExpr]
     testParseE test20 `shouldBe`
       Right (While (BExpr Gt (IExpr 10) (IExpr 5)) exprs)
 

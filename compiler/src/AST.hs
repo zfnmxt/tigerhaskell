@@ -58,7 +58,7 @@ data RecordField = RecordField { rfId   :: Id
 data Expr = VExpr Var
           | NilExpr
           | ExprSeq [Expr]
-          | NoValue
+          | UnitExpr
           | IExpr Integer
           | SExpr String
           | BExpr BOp Expr Expr
