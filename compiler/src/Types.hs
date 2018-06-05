@@ -19,4 +19,5 @@ String |> String     = True
 Array x |> Array y   = x |> y
 Nil |> Nil           = True
 Unit |> Unit         = True
+_ |> _               = False
 
