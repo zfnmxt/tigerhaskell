@@ -15,9 +15,6 @@ import TypeChecker
 import AST
 import Types
 
---transExpr' :: Expr -> Either TError Ty
---transExpr' e = fst <$> runStateT (snd <$> transExpr e) initEnv
-
 parseAndTy :: String -> Either TError Ty
 parseAndTy s = case testParseE s of
   Left _ -> Left "oops"
@@ -51,30 +48,30 @@ baseTests = describe "Basic type checker tests" $ do
 
   it "typechecks array vars" $ do
     getTy $ do
-      insertVar "x" (Array Int 0)
+      insertVar "x" (Array "foo" Int)
       transExpr $ VExpr $ ArrayVar (SimpleVar "x") (IExpr 1)
    `shouldBe` Right Int
 
   it "typechecks record vars 1" $ do
     getTy $ do
-      insertVar "x" $ Record [("field1", Int), ("field2", String)] 0
+      insertVar "x" $ Record "foo" (Just [("field1", Int), ("field2", String)])
       transExpr $ VExpr $ FieldVar (SimpleVar "x") "field1"
    `shouldBe` Right Int
 
   it "typechecks record vars 2" $ do
     getTy $ do
-      insertVar "x" $ Record [("field1", Int), ("field2", String)] 0
+      insertVar "x" $ Record "foo" (Just [("field1", Int), ("field2", String)])
       transExpr $ VExpr $ FieldVar (SimpleVar "x") "field2"
     `shouldBe` Right String
 
   it "adds var typeless decs to the env" $ do
      let vDec       = VarDec $ VarDef "x" Nothing (IExpr 5)
-     let Right (vEnv, _, _) = execStateT (transDec vDec) initEnv
+     let Right (vEnv, _) = execStateT (transDec vDec) initEnv
      M.lookup "x" vEnv `shouldBe` Just (VarEntry Int)
 
   it "adds var typed decs to the env" $ do
      let vDec       = VarDec $ VarDef "x" (Just "int") (IExpr 5)
-     let Right (vEnv, _, _) = execStateT (transDec vDec) initEnv
+     let Right (vEnv, _) = execStateT (transDec vDec) initEnv
      M.lookup "x" vEnv `shouldBe` Just (VarEntry Int)
 
   it "rejects incorrectly typed vars" $ do
@@ -94,34 +91,34 @@ baseTests = describe "Basic type checker tests" $ do
 
   it "adds DataConst types to the env" $ do
      let tDec       = TypeDec [Type "fooT" (DataConst "int")]
-     let Right (_, tEnv, _) = execStateT (transDec tDec) initEnv
+     let Right (_, tEnv) = execStateT (transDec tDec) initEnv
      M.lookup "fooT" tEnv `shouldBe` Just Int
 
   it "adds DataConst types to the env 2" $ do
      let tDec       = TypeDec [Type "fooT" (DataConst "int")]
      let tDec2      = TypeDec [Type "derpT" (DataConst "fooT")]
-     let Right (_, tEnv, _) = execStateT (transDec tDec >> transDec tDec2) initEnv
+     let Right (_, tEnv) = execStateT (transDec tDec >> transDec tDec2) initEnv
      M.lookup "derpT" tEnv `shouldBe` Just Int
 
   it "adds RecordType types to the env" $ do
      let tDec = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "string"])]
-     let Right (_, tEnv, _) = execStateT (transDec tDec) initEnv
-     M.lookup "recT" tEnv `shouldBe` Just (Record [("field1", Int), ("field2", String)] 0)
+     let Right (_, tEnv) = execStateT (transDec tDec) initEnv
+     M.lookup "recT" tEnv `shouldBe` Just (Record "recT" (Just [("field1", Int), ("field2", String)]))
 
   it "adds ArrayType types to the env" $ do
      let tDec = TypeDec [Type "arrayT" (ArrayType "int")]
-     let Right (_, tEnv,_) = execStateT (transDec tDec) initEnv
-     M.lookup "arrayT" tEnv `shouldBe` Just (Array Int 0)
+     let Right (_, tEnv) = execStateT (transDec tDec) initEnv
+     M.lookup "arrayT" tEnv `shouldBe` Just (Array "arrayT" Int)
 
   it "accepts record vars initialized with expressions of type nil" $ do
      let tDec = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "string"])]
      let vDec = VarDec $ VarDef "x" (Just  "recT") NilExpr
-     let Right (vEnv, _, _)= execStateT (transDec tDec >> transDec vDec) initEnv
-     M.lookup "x" vEnv `shouldBe` Just (VarEntry (Record [("field1", Int), ("field2", String)] 0))
+     let Right (vEnv, _)= execStateT (transDec tDec >> transDec vDec) initEnv
+     M.lookup "x" vEnv `shouldBe` Just (VarEntry (Record "recT" (Just [("field1", Int), ("field2", String)])))
 
   it "adds function declaration types to the env" $ do
     let fDec = FunDec [FunDef "f" ["x" |: "int", "y" |: "string"] (Just "string") (SExpr "foo")]
-    let Right (vEnv,_,_) = execStateT (transDec fDec) initEnv
+    let Right (vEnv,_) = execStateT (transDec fDec) initEnv
     M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] String)
 
   it "rejects procedures whose bodies don't type match" $ do
@@ -132,7 +129,7 @@ baseTests = describe "Basic type checker tests" $ do
   it "adds procedure declaration types to the env" $ do
     let fDec = FunDec [FunDef "f" ["x" |: "int", "y" |: "string"] Nothing
                        (If (BExpr Equal (IExpr 1) (IExpr 1)) Break)]
-    let Right (vEnv, _, _) = execStateT (transDec fDec) initEnv
+    let Right (vEnv, _) = execStateT (transDec fDec) initEnv
     M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] Unit)
 
   it "accepts well-typed if statements" $ do
@@ -191,18 +188,25 @@ baseTests = describe "Basic type checker tests" $ do
      let letExpr = Let [tDec] [IExpr 1]
      getTy (transExpr letExpr) `shouldBe` Right Int
 
+  it "correctly checks record type declarations 2" $ do
+     let tDecs = TypeDec [ Type "recT" (RecordType ["field1" |: "int", "field2" |: "recT"])
+                         , Type "arrayT" (ArrayType "recT")
+                         ]
+     let Right (_, tEnv) = execStateT (transDec tDecs) initEnv
+     M.lookup "arrayT" tEnv `shouldBe` Just (Array "arrayT" (Record "recT" Nothing ))
+
 appelTests :: SpecWith ()
 appelTests = describe "tests using appel's .tig files" $ do
   it "checks test1" $ do
-    parseAndTy test1 `shouldBe` Right (Array Int 0)
+    parseAndTy test1 `shouldBe` Right (Array "arrtype" Int)
   it "checks test2" $ do
-    parseAndTy test2 `shouldBe` Right (Array Int 0)
+    parseAndTy test2 `shouldBe` Right (Array "arrtype" Int)
   it "checks test3" $ do
-    parseAndTy test3 `shouldBe` Right (Record [("name", String), ("age", Int)] 0)
+    parseAndTy test3 `shouldBe` Right (Record "rectype" (Just [("name", String), ("age", Int)]))
   it "checks test4" $ do
     parseAndTy test4 `shouldBe` Right Int
   it "checks test5" $ do
-    parseAndTy test5 `shouldBe` Right (Record [("hd", Int), ("tl", Rec "intlist")] 0)
+    parseAndTy test5 `shouldBe` Right (Record "intlist" (Just [("hd", Int), ("tl", Record "intlist" Nothing)]))
   it "checks test6" $ do
     parseAndTy test6 `shouldBe` Right Unit
   it "checks test7" $ do
@@ -276,7 +280,7 @@ appelTests = describe "tests using appel's .tig files" $ do
   it "checks test41" $ do
     parseAndTy test41 `shouldBe` Right Int
   it "checks test42" $ do
-    parseAndTy test42 `shouldBe` Right Int
+    parseAndTy test42 `shouldBe` Right Unit
   it "checks test43" $ do
     isLeft (parseAndTy test43) `shouldBe` True
   it "checks test44" $ do

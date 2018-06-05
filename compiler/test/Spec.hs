@@ -4,5 +4,5 @@ import Spec.TypeChecker
 
 main :: IO ()
 main = hspec $ do
- -- parserTests
+  parserTests
   typeCheckerTests

@@ -22,7 +22,7 @@ type TExpr = ()
 type TExprTy = (TExpr, Ty)
 type VEnv = Map Id VEnvEntry
 type TEnv = Map TypeId Ty
-type Env  = (VEnv, TEnv, Unique)
+type Env  = (VEnv, TEnv)
 
 type TError = String
 type CheckerState = StateT Env (Either TError)
@@ -46,7 +46,7 @@ baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit)
                       , ("exit",      FunEntry [Int] Unit)
                       ]
 
-initEnv = (baseVEnv, baseTEnv, 0 :: Int)
+initEnv = (baseVEnv, baseTEnv)
 
 --------------------------------------------------------------------------------
 -- Env functions
@@ -54,18 +54,18 @@ initEnv = (baseVEnv, baseTEnv, 0 :: Int)
 
 insertVar :: Id -> Ty -> CheckerState ()
 insertVar id t = do
-  (venv, tenv, u) <- S.get
-  S.put (M.insert id (VarEntry t) venv, tenv, u)
+  (venv, tenv) <- S.get
+  S.put (M.insert id (VarEntry t) venv, tenv)
 
 insertFun :: Id -> [Ty] -> Ty -> CheckerState ()
 insertFun id argsTy resTy = do
-  (venv, tenv, u) <- S.get
-  S.put (M.insert id (FunEntry argsTy resTy) venv, tenv, u)
+  (venv, tenv) <- S.get
+  S.put (M.insert id (FunEntry argsTy resTy) venv, tenv)
 
 
 lookupVar :: Id -> CheckerState VEnvEntry
 lookupVar id = do
-  (venv, _, _) <- S.get
+  (venv, _) <- S.get
   case M.lookup id venv of
     Just (VarEntry t)   -> return (VarEntry t)
     Just (FunEntry _ _) -> genError id "found function instead of var"
@@ -73,7 +73,7 @@ lookupVar id = do
 
 lookupFun :: Id -> CheckerState VEnvEntry
 lookupFun id = do
-  (venv, _, _) <- S.get
+  (venv, _) <- S.get
   case M.lookup id venv of
     Just (VarEntry _ )           -> genError id "found var instead of function"
     Just (FunEntry argTys retTy) -> return $ FunEntry argTys retTy
@@ -81,23 +81,12 @@ lookupFun id = do
 
 insertTy :: TypeId -> Ty -> CheckerState ()
 insertTy typeId ty = do
-  (venv, tenv, u) <- S.get
-  S.put (venv, M.insert typeId ty tenv, u)
-
-insertRATy :: TypeId -> (Unique -> Ty) -> CheckerState ()
-insertRATy typeId f = do
-  u <- mkUnique
-  insertTy typeId (f u)
-
-mkUnique :: CheckerState Unique
-mkUnique = do
-  (venv, tenv, u) <- S.get
-  S.put (venv, tenv, u + 1)
-  return u
+  (venv, tenv) <- S.get
+  S.put (venv, M.insert typeId ty tenv)
 
 lookupTy :: TypeId -> CheckerState Ty
 lookupTy tId = do
-  (_, tenv, _) <- S.get
+  (_, tenv) <- S.get
   case M.lookup tId tenv of
     Just t  -> return t
     Nothing -> genError tId "type not found"
@@ -125,33 +114,36 @@ transExpr expr@(ExprSeq exprs) = do
 transExpr expr@(RecordExpr tId fields) = do
   recT       <- lookupTy tId
   case recT of
-   Record fieldTs _ -> do
-            nameTypeChecks <- sequence $ map mapFunc (zip fields fieldTs)
-            if and nameTypeChecks
-            then return ((), recT)
-            else genError expr "field name or type don't match with declared record type"
-   _                -> genError expr "type of expr not a record type"
-  where mapFunc (RecordField fid fexp, (fname, ftype)) = do
-                  (_, dType) <- transExpr fexp
-                  case ftype of
-                    Rec recTid -> do
-                                  recType <- lookupTy recTid
-                                  return $ (fname == fid) && (dType |> recType)
-                    _          -> return $ (fname == fid) && (dType |> ftype)
+   Record _ (Just fieldTs) -> do
+     checks <- nameTypeCheck
+     if and checks
+     then return ((), recT)
+     else genError expr "field name or type don't match with declared record type"
+       where nameTypeCheck =
+               let f (field, (fname, ftype)) = do
+                     (_, fexprT) <- transExpr (rfExpr field)
+                     case ftype of
+                       Record recTyId Nothing -> do
+                                                 recTy <- lookupTy recTyId
+                                                 return $ rfId field == fname && fexprT |> recTy
+                       _                      -> return $ rfId field == fname && fexprT |> ftype
+               in mapM f $ zip fields fieldTs
+   _                ->
+     genError expr "type of expr not a record type"
 
 transExpr expr@(ArrayExpr tId n v) = do
   arrayT  <- lookupTy tId
   (_, nT) <- transExpr n
   (_, vT) <- transExpr v
-  env'    <- S.get
   case arrayT of
-    Array t _ -> if nT == Int
-                 then if vT |> t
-                    then return ((), arrayT)
-                   -- else error $ "t: " ++ show t ++ "\n" 
-                   --              ++ "vT: " ++ show vT ++ "\n"
-                   --              ++ "env: " ++ show env'
-                    else genError expr $ "v should have type " ++ show t
+    Array aId t -> if nT == Int
+                   then do
+                     t' <- case t of
+                               Record recId Nothing -> lookupTy recId
+                               _                    -> return t
+                     if vT |> t'
+                      then return ((), Array aId t')
+                      else genError expr $ "v should have type " ++ show t
                else genError expr "n must have type int"
     _       -> genError expr "type of array expr isn't an array type"
 
@@ -183,6 +175,7 @@ transExpr expr@(BExpr op l r)
      else genError expr $ "ints, strings, array, or recs required"
                                          ++ " left type: " ++ show lType ++ " right type: "
                                          ++ show rType
+
 transExpr expr@(If cond body) = do
     (_, condT) <- transExpr cond
     (_, bodyT) <- transExpr body
@@ -201,6 +194,7 @@ transExpr expr@(IfE cond body1 body2) = do
              then return ((), body1T)
              else genError expr "both expressions in IFE must have the same type"
       _        -> genError expr "cond of if expression must have type int"
+
 transExpr expr@(While cond body) = do
     (_, condT) <- transExpr cond
     (_, bodyT) <- transExpr body
@@ -240,12 +234,15 @@ transExpr expr@(FCall f args) = do
 transExpr UnitExpr = return ((), Unit)
 transExpr expr = genError expr "pattern match failed"
 
+--------------------------------------------------------------------------------
+-- Var typechecking
+--------------------------------------------------------------------------------
 
 typeCheckVar :: Var -> CheckerState Ty
 typeCheckVar var = do
   case var of
     SimpleVar v -> do
-      (vEnv, _, _) <- S.get
+      (vEnv, _) <- S.get
       case M.lookup v vEnv of
         Just (VarEntry vType) -> return vType
         Just (FunEntry _ _  ) -> genError var "function with same name exists"
@@ -254,50 +251,49 @@ typeCheckVar var = do
     FieldVar r field -> do
       rTy <- typeCheckVar r
       case rTy of
-        Record fieldTypes _ -> case L.lookup field fieldTypes of
-                               Nothing    -> genError var "field does not exist in record"
-                               Just fType -> return fType
+        Record _ (Just fieldTypes) ->
+          case L.lookup field fieldTypes of
+            Nothing    -> genError var "field does not exist in record"
+            Just fType -> return fType
         _                 -> genError var "non-record type"
 
     ArrayVar a _ -> do
       arrayTy <- typeCheckVar a
       case arrayTy of
-        Array t _ -> return t
+        Array _ t -> return t
         _         -> genError var "not an array type"
+
+--------------------------------------------------------------------------------
+-- Declaration type checking
+--------------------------------------------------------------------------------
+duplicates :: Ord a => [a] -> Bool
+duplicates xs = length xs /= length (S.fromList xs)
 
 transDec :: Dec -> CheckerState ()
 transDec d = transDecHeader d >> transDecBody d
-
-duplicates :: Ord a => [a] -> Bool
-duplicates xs = length xs /= length (S.fromList xs)
 
 transDecHeader :: Dec -> CheckerState ()
 transDecHeader (VarDec v) = return ()
 transDecHeader (TypeDec tys) =
     if duplicates names
     then genError tys "has duplicate type names"
-    else mapM addTy tys >> return ()
-    where names                     = map typeC tys
-          addTy t@(Type tyC tyBody) =
-            case tyBody of
-              DataConst tyId      -> lookupTy tyId >>= \t -> insertTy tyC t
-              RecordType tyFields -> insertTy tyC (Rec tyC)
-              ArrayType tyId      -> do
-                t <- lookupTy tyId
-                u <- mkUnique
-                insertTy tyC (Array t u)
+    else mapM_ addTy tys
+    where names = map typeC tys
+          addTy t@(Type tyC (DataConst tyId))      = lookupTy tyId >>= \t -> insertTy tyC t
+          addTy t@(Type tyC (RecordType tyFields)) = insertTy tyC (Record tyC Nothing)
+          addTy t@(Type tyC (ArrayType tyId))      = lookupTy tyId >>= \t -> insertTy tyC (Array tyC t)
 
 transDecHeader (FunDec fs) =
   if duplicates names
   then genError fs "has duplicate function names"
-  else mapM addF fs >> return ()
+  else mapM_ addF fs
   where names = map fId fs
         addF f@(FunDef funId args resType body) = do
-          argTyPairs <- typeFieldCheck args return
-          let argTys = map snd argTyPairs
-          resTy <- case resType of
-                     Nothing       -> return Unit
-                     Just resType' -> lookupTy resType'
+          argTyPairs <- getFieldTys args
+          let argTys =  map snd argTyPairs
+          resTy      <- case resType of
+                         Nothing       -> return Unit
+                         Just resType' -> lookupTy resType'
           insertFun funId argTys resTy
           return ()
 
@@ -320,14 +316,13 @@ transDecBody (VarDec v) =
         _   -> if t == t'
                then insertVar (vId v) t'
                else genError v "var type does not match expression type"
-transDecBody (TypeDec tys) = mapM addTy tys >> return ()
-    where addTy t@(Type tyC tyBody) =
-            case tyBody of
-              RecordType tyFields -> typeFieldCheck tyFields (\tyPairs -> do
-                                                                 u <- mkUnique
-                                                                 insertTy tyC (Record tyPairs u)
-                                                             )
-              _                   -> return ()
+
+transDecBody (TypeDec tys) = mapM_ addTy tys
+    where addTy t@(Type tyC (RecordType tyFields)) = do
+            fieldTys <- getFieldTys tyFields
+            insertTy tyC $ Record tyC (Just fieldTys)
+          addTy _ = return ()
+
 transDecBody (FunDec fs) = mapM addF fs >> return ()
   where addF f@(FunDef funId args resType body) = do
             FunEntry argTs resTy <- lookupFun funId
@@ -339,23 +334,11 @@ transDecBody (FunDec fs) = mapM addF fs >> return ()
             then S.put oldEnv
             else genError f "res type doesn't match the type of the body"
 
-typeFieldCheck :: [TypeField] -> ([(Id, Ty)] -> CheckerState a) -> CheckerState a
-typeFieldCheck tyFields f = do
-  (venv, tenv, u) <- S.get
-  let g (TypeField id fTy) = (\ty -> (id, ty)) <$> M.lookup fTy tenv
-  case mapM g tyFields of
-    Just tyPairs -> f tyPairs
-    Nothing      -> genError tyFields "typefield has invalid fields"
-
-
-
-
-
-
-
-
-
-
-
-
-
+getFieldTys :: [TypeField] -> CheckerState [(Id, Ty)]
+getFieldTys typeFields = do
+  (venv, tenv) <- S.get
+  mapM (f tenv) typeFields
+  where f tenv (TypeField name fieldT) =
+         case M.lookup fieldT tenv of
+           Nothing -> genError typeFields "typefield has invalid fields"
+           Just ty -> return (name, ty)
