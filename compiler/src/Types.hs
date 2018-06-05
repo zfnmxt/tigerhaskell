@@ -9,6 +9,7 @@ data Ty = Int
         | Array Ty Unique
         | Nil
         | Unit
+        | Rec TypeId
         deriving (Show, Eq)
 
 
