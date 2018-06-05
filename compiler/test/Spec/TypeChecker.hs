@@ -128,15 +128,15 @@ baseTests = describe "Basic type checker tests" $ do
 
   it "adds procedure declaration types to the env" $ do
     let fDec = FunDec [FunDef "f" ["x" |: "int", "y" |: "string"] Nothing
-                       (If (BExpr Equal (IExpr 1) (IExpr 1)) Break)]
+                       (If (BExpr Equal (IExpr 1) (IExpr 1)) UnitExpr)]
     let Right (vEnv, _) = execStateT (transDec fDec) initEnv
     M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] Unit)
 
   it "accepts well-typed if statements" $ do
-    getTy (transExpr  (If (IExpr 0) Break)) `shouldBe` Right Unit
+    getTy (transExpr  (If (IExpr 0) UnitExpr)) `shouldBe` Right Unit
 
   it "accepts well-typed ifE statements" $ do
-    getTy (transExpr  (IfE (IExpr 0) Break Break)) `shouldBe` Right Unit
+    getTy (transExpr  (IfE (IExpr 0) (IExpr 1) (IExpr 2))) `shouldBe` Right Int
 
   it "rejects bad if statements" $ do
     let s = execStateT (transExpr (If (IExpr 0) (IExpr 1))) initEnv
@@ -195,8 +195,12 @@ baseTests = describe "Basic type checker tests" $ do
      let Right (_, tEnv) = execStateT (transDec tDecs) initEnv
      M.lookup "arrayT" tEnv `shouldBe` Just (Array "arrayT" (Record "recT" Nothing ))
 
+  it "rejects break statements outside of for/while loops" $ do
+    let s = evalStateT (transExpr (If (IExpr 0) Break)) initEnv
+    isLeft s `shouldBe` True
+
 appelTests :: SpecWith ()
-appelTests = describe "tests using appel's .tig files" $ do
+appelTests = describe "Type checker tests using appel's .tig files" $ do
   it "checks test1" $ do
     parseAndTy test1 `shouldBe` Right (Array "arrtype" Int)
   it "checks test2" $ do
