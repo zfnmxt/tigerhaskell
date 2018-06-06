@@ -199,6 +199,10 @@ baseTests = describe "Basic type checker tests" $ do
     let s = evalStateT (transExpr (If (IExpr 0) Break)) initEnv
     isLeft s `shouldBe` True
 
+  it "rejects break statements outside of for/while loops 2" $ do
+    let s = evalStateT (transExpr Break) initEnv
+    isLeft s `shouldBe` True
+
 appelTests :: SpecWith ()
 appelTests = describe "Type checker tests using appel's .tig files" $ do
   it "checks test1" $ do
