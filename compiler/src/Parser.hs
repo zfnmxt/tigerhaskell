@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Parser where
 
@@ -193,6 +194,14 @@ typeFieldsP =
         return $ first:rest
   <|> return []
 
+fieldsP :: TigerP [Field]
+fieldsP = do
+  typeFields <- typeFieldsP
+  return $ f <$> typeFields
+  where f TypeField{..} = Field _typeFieldId _typeFieldType True
+
+
+
 arrayTypeP :: TigerP TypeBody
 arrayTypeP = do
   kKeywordP "array"
@@ -216,7 +225,7 @@ funP = do
   kKeywordP "function"
   id <- identifierP
   ctoken' $ char '('
-  args <- typeFieldsP
+  args <- fieldsP
   ctoken' $ char ')'
   typeAnno <- typeAnnoP
   ctoken' $ char '='
