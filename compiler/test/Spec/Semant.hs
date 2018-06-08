@@ -1,4 +1,4 @@
-module Spec.TypeChecker where
+module Spec.Semant where
 
 import Test.Hspec
 import Test.QuickCheck
@@ -11,7 +11,7 @@ import Spec.AppelTigFiles
 import Spec.Parser (testParseE)
 
 import Parser
-import TypeChecker
+import Semant
 import AST
 import Types
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
-module TypeChecker where
+module Semant where
 
 import AST
 import Types

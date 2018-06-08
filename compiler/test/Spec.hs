@@ -1,6 +1,6 @@
 import Test.Hspec
 import Spec.Parser
-import Spec.TypeChecker
+import Spec.Semant
 
 main :: IO ()
 main = hspec $ do
