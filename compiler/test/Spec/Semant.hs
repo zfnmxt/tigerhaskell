@@ -117,17 +117,17 @@ baseTests = describe "Basic type checker tests" $ do
      M.lookup "x" vEnv `shouldBe` Just (VarEntry (Record "recT" (Just [("field1", Int), ("field2", String)])))
 
   it "adds function declaration types to the env" $ do
-    let fDec = FunDec [FunDef "f" ["x" |: "int", "y" |: "string"] (Just "string") (SExpr "foo")]
+    let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] (Just "string") (SExpr "foo")]
     let Right (vEnv,_) = execStateT (transDec fDec) initEnv
     M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] String)
 
   it "rejects procedures whose bodies don't type match" $ do
-    let fDec = FunDec [FunDef "f" ["x" |: "int", "y" |: "string"] Nothing (SExpr "foo")]
+    let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] Nothing (SExpr "foo")]
     let s    = execStateT (transDec fDec) initEnv
     isLeft s `shouldBe` True
 
   it "adds procedure declaration types to the env" $ do
-    let fDec = FunDec [FunDef "f" ["x" |: "int", "y" |: "string"] Nothing
+    let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] Nothing
                        (If (BExpr Equal (IExpr 1) (IExpr 1)) UnitExpr)]
     let Right (vEnv, _) = execStateT (transDec fDec) initEnv
     M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] Unit)
@@ -158,13 +158,14 @@ baseTests = describe "Basic type checker tests" $ do
   it "correctly binds function decs in let expressions" $ do
      let tDec       = TypeDec [Type "fooT" (DataConst "int")]
      let vDec       = VarDec $ VarDef "x" (Just "fooT") (IExpr 5)
-     let fDec       = FunDec [FunDef "f" ["x" |: "fooT", "y" |: "string"] (Just "fooT") (VExpr (SimpleVar "x"))]
+     let fDec       = FunDec [FunDef "f" [Field "x" "fooT" True, Field "y" "string" True]
+                              (Just "fooT") (VExpr (SimpleVar "x"))]
      let letExpr    = Let [tDec, vDec, fDec] [FCall "f" [IExpr 1, SExpr "blah"]]
      getTy (transExpr letExpr) `shouldBe` Right Int
 
   it "correctly checks mutually-recursive function declarations" $ do
-     let fDec    = FunDec [ FunDef "f" ["x" |: "int"] (Just "int") (FCall "g" [IExpr 1])
-                          , FunDef "g" ["x" |: "int"] (Just "int") (FCall "f" [IExpr 1])
+     let fDec    = FunDec [ FunDef "f" [Field "x" "int" True] (Just "int") (FCall "g" [IExpr 1])
+                          , FunDef "g" [Field "x" "int" True] (Just "int") (FCall "f" [IExpr 1])
                           ]
      let letExpr = Let [fDec] [FCall "g" [IExpr 1]]
      getTy (transExpr letExpr) `shouldBe` Right Int
@@ -177,7 +178,7 @@ baseTests = describe "Basic type checker tests" $ do
      getTy (transExpr letExpr) `shouldBe` Right Int
 
   it "correctly checks recursive function declarations" $ do
-     let fDec    = FunDec [ FunDef "f" ["x" |: "int"] (Just "int") (FCall "f" [IExpr 1])
+     let fDec    = FunDec [ FunDef "f" [Field "x" "int" True] (Just "int") (FCall "f" [IExpr 1])
                           ]
      let letExpr = Let [fDec] [FCall "f" [IExpr 1]]
      getTy (transExpr letExpr) `shouldBe` Right Int

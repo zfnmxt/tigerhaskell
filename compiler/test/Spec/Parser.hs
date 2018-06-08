@@ -145,7 +145,8 @@ baseTests = describe "Basic parser tests" $ do
     testParseD "function myFunc () : int = 5" `shouldBe`
       Right (FunDec [FunDef "myFunc" [] (Just "int") (IExpr 5)])
     testParseD "function myFunc(arg1: int, arg2: string, arg3:foo) : int = 5" `shouldBe`
-      Right (FunDec [FunDef "myFunc" ["arg1" |: "int", "arg2" |: "string", "arg3" |: "foo"]
+      Right (FunDec [FunDef "myFunc" [Field "arg1" "int" True, Field "arg2" "string" True
+                                     ,Field "arg3" "foo" True]
                      (Just "int") (IExpr 5)])
 
   it "parses let statements" $ do
@@ -193,7 +194,7 @@ appelTests = describe "Parser tests using (some) of appel's .tig files" $ do
     let nfactor_body = IfE (BExpr Equal (VExpr (SimpleVar "n")) (IExpr 0))
                            (IExpr 1)
                            (BExpr Mult (VExpr (SimpleVar "n")) (FCall "nfactor" [BExpr Sub (VExpr (SimpleVar "n")) (IExpr 1)]))
-    let nfactor = FunDec [FunDef "nfactor" ["n" |: "int"] (Just "int") nfactor_body]
+    let nfactor = FunDec [FunDef "nfactor" [Field "n" "int" True] (Just "int") nfactor_body]
     testParseE test4 `shouldBe`
       Right (Let [nfactor] [FCall "nfactor" [IExpr 10]])
 
@@ -206,17 +207,17 @@ appelTests = describe "Parser tests using (some) of appel's .tig files" $ do
     testParseE test5 `shouldBe` Right (Let [typeDecs, list] [VExpr (SimpleVar "lis")])
 
   it "parses test6" $ do
-    let do_nothings = FunDec [ FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] Nothing
+    let do_nothings = FunDec [ FunDef "do_nothing1" [Field "a" "int" True, Field "b" "string" True] Nothing
                                  (FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)])
-                             , FunDef "do_nothing2" ["d" |: "int"] Nothing
+                             , FunDef "do_nothing2" [Field "d" "int" True] Nothing
                               (FCall "do_nothing1" [VExpr (SimpleVar "d"), SExpr "str"])
                              ]
     testParseE test6 `shouldBe` Right(Let [do_nothings] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
   it "parses test7" $ do
-    let do_nothings = FunDec [ FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
+    let do_nothings = FunDec [ FunDef "do_nothing1" [Field "a" "int" True, Field "b" "string" True] (Just "int")
                                  (ExprSeq [FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)], IExpr 0])
-                             , FunDef "do_nothing2" ["d" |: "int"] (Just "string")
+                             , FunDef "do_nothing2" [Field "d" "int" True] (Just "string")
                               (ExprSeq [FCall "do_nothing1" [VExpr (SimpleVar "d"), SExpr "str"], SExpr " "])
                              ]
     testParseE test7 `shouldBe` Right(Let [do_nothings] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
@@ -279,18 +280,18 @@ appelTests = describe "Parser tests using (some) of appel's .tig files" $ do
       Right (Let [tree, d, treelist] [VExpr (SimpleVar "d")])
 
   it "parses test18" $ do
-    let do_nothing1 = FunDec [FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
+    let do_nothing1 = FunDec [FunDef "do_nothing1" [Field "a" "int" True, Field "b" "string" True] (Just "int")
                               (ExprSeq [FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)], IExpr 0])]
     let d         = VarDec  (VarDef "d" Nothing (IExpr 0))
-    let do_nothing2 = FunDec [FunDef "do_nothing2" ["d" |: "int"] (Just "string")
+    let do_nothing2 = FunDec [FunDef "do_nothing2" [Field "d" "int" True] (Just "string")
                               (ExprSeq [FCall "do_nothing1" [VExpr (SimpleVar "d"), SExpr "str"], SExpr " "])]
     testParseE test18 `shouldBe`
       Right(Let [do_nothing1, d, do_nothing2] [FCall "do_nothing1" [IExpr 0, SExpr "str2"]])
 
   it "parses test19" $ do
-    let do_nothings = FunDec [ FunDef "do_nothing1" ["a" |: "int", "b" |: "string"] (Just "int")
+    let do_nothings = FunDec [ FunDef "do_nothing1" [Field "a" "int" True, Field "b" "string" True] (Just "int")
                                 (ExprSeq [FCall "do_nothing2" [BExpr Add (VExpr (SimpleVar "a")) (IExpr 1)], IExpr 0])
-                             , FunDef "do_nothing2" ["d" |: "int"] (Just "string")
+                             , FunDef "do_nothing2" [Field "d" "int" True] (Just "string")
                               (ExprSeq [FCall "do_nothing1" [VExpr (SimpleVar "a"), SExpr "str"], SExpr " "])
                              ]
     testParseE test19 `shouldBe`
