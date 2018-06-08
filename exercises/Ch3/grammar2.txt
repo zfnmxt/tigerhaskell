@@ -1,8 +1,0 @@
-S -> uBDz
-B -> Bv
-B -> w
-D -> EF
-E -> y
-E ->
-F -> x
-F ->
