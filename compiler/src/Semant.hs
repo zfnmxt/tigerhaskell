@@ -1,4 +1,4 @@
-{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Semant where
 
@@ -124,13 +124,13 @@ transExpr expr@(RecordExpr tId fields) = do
      then return ((), recT)
      else genError expr "field name or type don't match with declared record type"
        where nameTypeCheck =
-               let f (field, (fname, ftype)) = do
-                     (_, fexprT) <- transExpr (rfExpr field)
+               let f (RecordField{..}, (fname, ftype)) = do
+                     (_, fexprT) <- transExpr _recordFieldExpr
                      case ftype of
                        Record recTyId Nothing -> do
                                                  recTy <- lookupTy recTyId
-                                                 return $ rfId field == fname && fexprT |> recTy
-                       _                      -> return $ rfId field == fname && fexprT |> ftype
+                                                 return $ _recordFieldId == fname && fexprT |> recTy
+                       _                      -> return $ _recordFieldId == fname && fexprT |> ftype
                in mapM f $ zip fields fieldTs
    _                ->
      genError expr "type of expr not a record type"
@@ -282,16 +282,17 @@ transDecHeader (TypeDec tys) =
     if duplicates names
     then genError tys "has duplicate type names"
     else mapM_ addTy tys
-    where names = map typeC tys
-          addTy t@(Type tyC (DataConst tyId))      = lookupTy tyId >>= \t -> insertTy tyC t
-          addTy t@(Type tyC (RecordType tyFields)) = insertTy tyC (Record tyC Nothing)
-          addTy t@(Type tyC (ArrayType tyId))      = lookupTy tyId >>= \t -> insertTy tyC (Array tyC t)
+    where
+      names = map _typeId tys
+      addTy t@(Type typeId (DataConst tyId))      = lookupTy tyId >>= \t -> insertTy typeId t
+      addTy t@(Type typeId (RecordType tyFields)) = insertTy typeId (Record typeId Nothing)
+      addTy t@(Type typeId (ArrayType tyId))      = lookupTy tyId >>= \t -> insertTy typeId (Array typeId t)
 
 transDecHeader (FunDec fs) =
   if duplicates names
   then genError fs "has duplicate function names"
   else mapM_ addF fs
-  where names = map fId fs
+  where names = map _funDefId fs
         addF f@(FunDef funId args resType body) = do
           argTyPairs <- getFieldTys args
           let argTys =  map snd argTyPairs
@@ -302,47 +303,58 @@ transDecHeader (FunDec fs) =
           return ()
 
 transDecBody :: Dec -> CheckerState ()
-transDecBody (VarDec v) =
-  case vType v of
+transDecBody (VarDec v@VarDef{..}) =
+  case _varDefType of
     Nothing -> do
-      (_, t) <- transExpr (vExpr v)
+      (_, t) <- transExpr _varDefExpr
       if t == Nil
       then genError v "expressions of type nil must be constrained by a record type"
-      else insertVar (vId v) t
-    Just tId  -> do
-      (_, t)  <- transExpr (vExpr v)
-      t'      <- lookupTy tId
+      else insertVar _varDefId t
+    Just typeId  -> do
+      (_, t)  <- transExpr _varDefExpr
+      t'      <- lookupTy typeId
       case t of
         Nil -> case t' of
-                 Record _ _ -> insertVar (vId v) t'
+                 Record _ _ -> insertVar _varDefId t'
                  _          -> genError v
                                "expressions of type nil must be constrained to records"
         _   -> if t == t'
-               then insertVar (vId v) t'
+               then insertVar _varDefId t'
                else genError v "var type does not match expression type"
 
 transDecBody (TypeDec tys) = mapM_ addTy tys
-    where addTy t@(Type tyC (RecordType tyFields)) = do
-            fieldTys <- getFieldTys tyFields
-            insertTy tyC $ Record tyC (Just fieldTys)
-          addTy _ = return ()
+    where addTy Type{..} =
+            case _typeBody of
+              RecordType typeFields -> do
+                typeFieldTys <- getTypeFieldTys typeFields
+                insertTy _typeId $ Record _typeId (Just typeFieldTys)
+              _                 -> return ()
 
 transDecBody (FunDec fs) = mapM addF fs >> return ()
   where addF f@(FunDef funId args resType body) = do
             FunEntry argTs resTy <- lookupFun funId
             oldEnv <- S.get
-            let argTyPairs = zipWith (\(TypeField id _) ty -> (id, ty)) args argTs
+            let argTyPairs = zipWith (\Field{..} ty -> (_fieldId, ty)) args argTs
             mapM (\(id, ty) -> insertVar id ty) argTyPairs
             (_, tBody) <- transExpr body
             if tBody == resTy
             then S.put oldEnv
             else genError f "res type doesn't match the type of the body"
 
-getFieldTys :: [TypeField] -> CheckerState [(Id, Ty)]
-getFieldTys typeFields = do
+getFieldTys :: [Field] -> CheckerState [(Id, Ty)]
+getFieldTys fields = do
+  (venv, tenv) <- S.get
+  mapM (f tenv) fields
+  where f tenv Field{..} =
+         case M.lookup _fieldType tenv of
+           Nothing -> genError fields "typefield has invalid fields"
+           Just ty -> return (_fieldId, ty)
+
+getTypeFieldTys :: [TypeField] -> CheckerState [(Id, Ty)]
+getTypeFieldTys typeFields = do
   (venv, tenv) <- S.get
   mapM (f tenv) typeFields
-  where f tenv (TypeField name fieldT) =
-         case M.lookup fieldT tenv of
+  where f tenv TypeField{..} =
+         case M.lookup _typeFieldType tenv of
            Nothing -> genError typeFields "typefield has invalid fields"
-           Just ty -> return (name, ty)
+           Just ty -> return (_typeFieldId, ty)
