@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module AST where
 
 type Id     = String
@@ -8,8 +10,8 @@ data Dec = TypeDec [Type]
          | FunDec [FunDef]
          deriving (Show, Eq)
 
-data Type   = Type { typeC :: TypeId
-                   , typeBody  :: TypeBody
+data Type   = Type { _typeId    :: TypeId -- typeC :: TypeId
+                   , _typeBody  :: TypeBody
                    } deriving (Show, Eq)
 
 data TypeBody  = DataConst TypeId
@@ -17,20 +19,25 @@ data TypeBody  = DataConst TypeId
                | ArrayType TypeId
                deriving (Show, Eq)
 
-data TypeField = TypeField { tfId :: Id
-                           , tfType  :: TypeId
+data TypeField = TypeField { _typeFieldId :: Id -- tfId :: Id
+                           , _typeFieldType :: TypeId -- tfType  :: TypeId
                            } deriving (Show, Eq)
 (|:) = TypeField
 
-data VarDef = VarDef { vId   :: Id
-                     , vType :: Maybe TypeId
-                     , vExpr :: Expr
+data VarDef = VarDef { _varDefId   :: Id -- vId   :: Id
+                     , _varDefType :: Maybe TypeId -- vType :: Maybe TypeId
+                     , _varDefExpr :: Expr-- vExpr :: Expr
                      } deriving (Show, Eq)
 
-data FunDef = FunDef { fId   :: Id
-                     , fArgs :: [TypeField]
-                     , fType :: Maybe TypeId
-                     , fExpr :: Expr
+data Field = Field { _fieldId     :: Id
+                   , _fieldType   :: TypeId
+                   , _fieldEscape :: Bool
+                   } deriving (Show, Eq)
+
+data FunDef = FunDef { _funDefId :: Id --fId   :: Id
+                     , _funDefArgs :: [Field] --fArgs :: [Field]
+                     , _funDefType :: Maybe TypeId --fType :: Maybe TypeId
+                     , _funDefExpr :: Expr --fExpr :: Expr
                      } deriving (Show, Eq)
 
 data Var = SimpleVar Id
@@ -44,13 +51,9 @@ data BOp = Add | Sub | Mult | Div | Equal | NEqual
 
 data Assoc = L | R | None deriving (Show, Eq)
 type Prec = Int
-data Op = Op { operator   :: BOp
-             , assoc      :: Assoc
-             , precedence :: Prec
-             } deriving (Show, Eq)
 
-data RecordField = RecordField { rfId   :: Id
-                               , rfExpr :: Expr
+data RecordField = RecordField { _recordFieldId   :: Id -- rfId   :: Id
+                               , _recordFieldExpr :: Expr -- rfExpr :: Expr
                                } deriving (Show, Eq)
 
 (|.) = RecordField
