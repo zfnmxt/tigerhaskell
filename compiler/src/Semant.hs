@@ -1,9 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Semant where
 
 import AST
 import Types
+import Temp
 import qualified Data.Map.Lazy as M
 import Data.Map.Lazy (Map)
 import Data.Set (Set)
@@ -20,12 +24,21 @@ data VEnvEntry = VarEntry {ty :: Ty}
 
 type TExpr = ()
 type TExprTy = (TExpr, Ty)
-type VEnv = Map Id VEnvEntry
-type TEnv = Map TypeId Ty
-type Env  = (VEnv, TEnv)
+type EnvV = Map Id VEnvEntry
+type EnvT = Map TypeId Ty
+data Env  = Env { _envV    :: EnvV
+                , _envT    :: EnvT
+                , _envTemp :: Temp
+                }
 
 type TError = String
 type CheckerState = StateT Env (Either TError)
+
+instance HasTemp CheckerState where
+  mkTemp = do
+    env@Env{..} <- S.get
+    let Temp x = _envTemp
+    S.put $ env{_envTemp = Temp (x + 1)}
 
 genError :: Show a => a -> String -> CheckerState b
 genError x s = lift . Left $ "Error on term: " ++ show x ++ " with error msg: " ++ s
@@ -46,7 +59,10 @@ baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit)
                       , ("exit",      FunEntry [Int] Unit)
                       ]
 
-initEnv = (baseVEnv, baseTEnv)
+initEnv = Env { _envV    = baseVEnv
+              , _envT    = baseTEnv
+              , _envTemp = Outermost
+              }
 
 --------------------------------------------------------------------------------
 -- Env functions
@@ -54,40 +70,39 @@ initEnv = (baseVEnv, baseTEnv)
 
 insertVar :: Id -> Ty -> CheckerState ()
 insertVar id t = do
-  (venv, tenv) <- S.get
-  S.put (M.insert id (VarEntry t) venv, tenv)
+  env@Env{..} <- S.get
+  S.put $ env {_envV = M.insert id (VarEntry t) _envV}
 
 insertFun :: Id -> [Ty] -> Ty -> CheckerState ()
 insertFun id argsTy resTy = do
-  (venv, tenv) <- S.get
-  S.put (M.insert id (FunEntry argsTy resTy) venv, tenv)
-
+  env@Env{..} <- S.get
+  S.put env {_envV = M.insert id (FunEntry argsTy resTy) _envV }
 
 lookupVar :: Id -> CheckerState VEnvEntry
 lookupVar id = do
-  (venv, _) <- S.get
-  case M.lookup id venv of
+  Env{..} <- S.get
+  case M.lookup id _envV of
     Just (VarEntry t)   -> return (VarEntry t)
     Just (FunEntry _ _) -> genError id "found function instead of var"
     Nothing             -> genError id "var not found"
 
 lookupFun :: Id -> CheckerState VEnvEntry
 lookupFun id = do
-  (venv, _) <- S.get
-  case M.lookup id venv of
+  Env{..} <- S.get
+  case M.lookup id _envV of
     Just (VarEntry _ )           -> genError id "found var instead of function"
     Just (FunEntry argTys retTy) -> return $ FunEntry argTys retTy
     Nothing                      -> genError id "var not found"
 
 insertTy :: TypeId -> Ty -> CheckerState ()
 insertTy typeId ty = do
-  (venv, tenv) <- S.get
-  S.put (venv, M.insert typeId ty tenv)
+  env@Env{..} <- S.get
+  S.put $ env { _envT =  M.insert typeId ty _envT }
 
 lookupTy :: TypeId -> CheckerState Ty
 lookupTy tId = do
-  (_, tenv) <- S.get
-  case M.lookup tId tenv of
+  Env{..} <- S.get
+  case M.lookup tId _envT of
     Just t  -> return t
     Nothing -> genError tId "type not found"
 
@@ -246,8 +261,8 @@ typeCheckVar :: Var -> CheckerState Ty
 typeCheckVar var = do
   case var of
     SimpleVar v -> do
-      (vEnv, _) <- S.get
-      case M.lookup v vEnv of
+      Env{..} <- S.get
+      case M.lookup v _envV of
         Just (VarEntry vType) -> return vType
         Just (FunEntry _ _  ) -> genError var "function with same name exists"
         _                     -> genError var "undefined var"
@@ -343,18 +358,18 @@ transDecBody (FunDec fs) = mapM addF fs >> return ()
 
 getFieldTys :: [Field] -> CheckerState [(Id, Ty)]
 getFieldTys fields = do
-  (venv, tenv) <- S.get
-  mapM (f tenv) fields
-  where f tenv Field{..} =
-         case M.lookup _fieldType tenv of
+  Env{..} <- S.get
+  mapM (f _envT) fields
+  where f envT Field{..} =
+         case M.lookup _fieldType envT of
            Nothing -> genError fields "typefield has invalid fields"
            Just ty -> return (_fieldId, ty)
 
 getTypeFieldTys :: [TypeField] -> CheckerState [(Id, Ty)]
 getTypeFieldTys typeFields = do
-  (venv, tenv) <- S.get
-  mapM (f tenv) typeFields
-  where f tenv TypeField{..} =
-         case M.lookup _typeFieldType tenv of
+  Env{..} <- S.get
+  mapM (f _envT) typeFields
+  where f envT TypeField{..} =
+         case M.lookup _typeFieldType envT of
            Nothing -> genError typeFields "typefield has invalid fields"
            Just ty -> return (_typeFieldId, ty)
