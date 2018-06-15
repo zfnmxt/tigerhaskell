@@ -5,6 +5,7 @@ module Temp (
  , mkTemp
  , mkLabel
  , initLabel
+ , mkNamedLabel
 ) where
 
 import Control.Monad.Trans.State.Lazy (State)
