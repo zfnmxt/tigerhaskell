@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Spec.Semant where
 
 import Test.Hspec
@@ -65,14 +67,14 @@ baseTests = describe "Basic type checker tests" $ do
     `shouldBe` Right String
 
   it "adds var typeless decs to the env" $ do
-     let vDec       = VarDec $ VarDef "x" Nothing (IExpr 5)
-     let Right (vEnv, _) = execStateT (transDec vDec) initEnv
-     M.lookup "x" vEnv `shouldBe` Just (VarEntry Int)
+     let vDec          = VarDec $ VarDef "x" Nothing (IExpr 5)
+     let Right Env{..} = execStateT (transDec vDec) initEnv
+     M.lookup "x" _envV `shouldBe` Just (VarEntry Int)
 
   it "adds var typed decs to the env" $ do
-     let vDec       = VarDec $ VarDef "x" (Just "int") (IExpr 5)
-     let Right (vEnv, _) = execStateT (transDec vDec) initEnv
-     M.lookup "x" vEnv `shouldBe` Just (VarEntry Int)
+     let vDec          = VarDec $ VarDef "x" (Just "int") (IExpr 5)
+     let Right Env{..} = execStateT (transDec vDec) initEnv
+     M.lookup "x" _envV `shouldBe` Just (VarEntry Int)
 
   it "rejects incorrectly typed vars" $ do
      let vDec = VarDec $ VarDef "x" (Just "string") (IExpr 5)
@@ -91,35 +93,35 @@ baseTests = describe "Basic type checker tests" $ do
 
   it "adds DataConst types to the env" $ do
      let tDec       = TypeDec [Type "fooT" (DataConst "int")]
-     let Right (_, tEnv) = execStateT (transDec tDec) initEnv
-     M.lookup "fooT" tEnv `shouldBe` Just Int
+     let Right Env{..} = execStateT (transDec tDec) initEnv
+     M.lookup "fooT" _envT `shouldBe` Just Int
 
   it "adds DataConst types to the env 2" $ do
-     let tDec       = TypeDec [Type "fooT" (DataConst "int")]
-     let tDec2      = TypeDec [Type "derpT" (DataConst "fooT")]
-     let Right (_, tEnv) = execStateT (transDec tDec >> transDec tDec2) initEnv
-     M.lookup "derpT" tEnv `shouldBe` Just Int
+     let tDec          = TypeDec [Type "fooT" (DataConst "int")]
+     let tDec2         = TypeDec [Type "derpT" (DataConst "fooT")]
+     let Right Env{..} = execStateT (transDec tDec >> transDec tDec2) initEnv
+     M.lookup "derpT" _envT `shouldBe` Just Int
 
   it "adds RecordType types to the env" $ do
-     let tDec = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "string"])]
-     let Right (_, tEnv) = execStateT (transDec tDec) initEnv
-     M.lookup "recT" tEnv `shouldBe` Just (Record "recT" (Just [("field1", Int), ("field2", String)]))
+     let tDec          = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "string"])]
+     let Right Env{..} = execStateT (transDec tDec) initEnv
+     M.lookup "recT" _envT `shouldBe` Just (Record "recT" (Just [("field1", Int), ("field2", String)]))
 
   it "adds ArrayType types to the env" $ do
-     let tDec = TypeDec [Type "arrayT" (ArrayType "int")]
-     let Right (_, tEnv) = execStateT (transDec tDec) initEnv
-     M.lookup "arrayT" tEnv `shouldBe` Just (Array "arrayT" Int)
+     let tDec            = TypeDec [Type "arrayT" (ArrayType "int")]
+     let Right Env{..} = execStateT (transDec tDec) initEnv
+     M.lookup "arrayT" _envT `shouldBe` Just (Array "arrayT" Int)
 
   it "accepts record vars initialized with expressions of type nil" $ do
      let tDec = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "string"])]
      let vDec = VarDec $ VarDef "x" (Just  "recT") NilExpr
-     let Right (vEnv, _)= execStateT (transDec tDec >> transDec vDec) initEnv
-     M.lookup "x" vEnv `shouldBe` Just (VarEntry (Record "recT" (Just [("field1", Int), ("field2", String)])))
+     let Right Env{..} = execStateT (transDec tDec >> transDec vDec) initEnv
+     M.lookup "x" _envV `shouldBe` Just (VarEntry (Record "recT" (Just [("field1", Int), ("field2", String)])))
 
   it "adds function declaration types to the env" $ do
     let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] (Just "string") (SExpr "foo")]
-    let Right (vEnv,_) = execStateT (transDec fDec) initEnv
-    M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] String)
+    let Right Env{..} = execStateT (transDec fDec) initEnv
+    M.lookup "f" _envV `shouldBe` Just (FunEntry [Int,String] String)
 
   it "rejects procedures whose bodies don't type match" $ do
     let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] Nothing (SExpr "foo")]
@@ -129,8 +131,8 @@ baseTests = describe "Basic type checker tests" $ do
   it "adds procedure declaration types to the env" $ do
     let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] Nothing
                        (If (BExpr Equal (IExpr 1) (IExpr 1)) UnitExpr)]
-    let Right (vEnv, _) = execStateT (transDec fDec) initEnv
-    M.lookup "f" vEnv `shouldBe` Just (FunEntry [Int,String] Unit)
+    let Right Env{..} = execStateT (transDec fDec) initEnv
+    M.lookup "f" _envV `shouldBe` Just (FunEntry [Int,String] Unit)
 
   it "accepts well-typed if statements" $ do
     getTy (transExpr  (If (IExpr 0) UnitExpr)) `shouldBe` Right Unit
@@ -193,8 +195,8 @@ baseTests = describe "Basic type checker tests" $ do
      let tDecs = TypeDec [ Type "recT" (RecordType ["field1" |: "int", "field2" |: "recT"])
                          , Type "arrayT" (ArrayType "recT")
                          ]
-     let Right (_, tEnv) = execStateT (transDec tDecs) initEnv
-     M.lookup "arrayT" tEnv `shouldBe` Just (Array "arrayT" (Record "recT" Nothing ))
+     let Right Env{..} = execStateT (transDec tDecs) initEnv
+     M.lookup "arrayT" _envT `shouldBe` Just (Array "arrayT" (Record "recT" Nothing ))
 
   it "rejects break statements outside of for/while loops" $ do
     let s = evalStateT (transExpr (If (IExpr 0) Break)) initEnv
