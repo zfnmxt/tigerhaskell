@@ -1,8 +1,11 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Temp (
    Temp (..)
  , Label
  , GenTemp
  , GenLabel
+ , HasTemp (..)
  , initTemp
  , mkTemp
  , mkLabel
@@ -21,16 +24,16 @@ type GenLabel = State Int
 initTemp :: GenTemp ()
 initTemp = S.put Outermost
 
-mkTemp :: GenTemp Temp
-mkTemp = do
-   temp <- S.get
-   case temp of
-     Outermost -> do
-       S.put  $ Temp 1
-       return $ Temp 1
-     Temp x    -> do
-       S.put  $ Temp (x + 1)
-       return $ Temp (x + 1)
+--mkTemp :: GenTemp Temp
+--mkTemp = do
+--   temp <- S.get
+--   case temp of
+--     Outermost -> do
+--       S.put  $ Temp 1
+--       return $ Temp 1
+--     Temp x    -> do
+--       S.put  $ Temp (x + 1)
+--       return $ Temp (x + 1)
 
 initLabel :: GenLabel ()
 initLabel = S.put 0
@@ -47,7 +50,8 @@ mkNamedLabel name = do
  return $ label {_labelName = name}
 
 
-
+class (Monad m) => HasTemp m where
+  mkTemp :: m ()
 
 
 
