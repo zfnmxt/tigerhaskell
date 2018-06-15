@@ -1,6 +1,8 @@
 module Temp (
    Temp (..)
  , Label
+ , GenTemp
+ , GenLabel
  , initTemp
  , mkTemp
  , mkLabel
