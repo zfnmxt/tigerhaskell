@@ -3,6 +3,7 @@
 module Frame where
 
 import Temp (Temp, Label)
+import Registers
 
 _WORDSIZE = 4
 
@@ -16,11 +17,6 @@ data Frame = Frame { _frameLabel     :: Label
                    , _frameLocalsLen :: Int
                    , _framePointer   :: Temp
                    } deriving (Eq, Show)
-
-data Reg = RAX | RBX | RCX | RDX | RSP | RBP | RSI
-         | RDI | R8  | R9  | R10 | R11 | R12 | R13
-         | R14 | R15
-
 
 lVarOffset :: Int -> Int
 lVarOffset locals = locals * (- _WORDSIZE)
