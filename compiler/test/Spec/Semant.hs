@@ -18,6 +18,7 @@ import AST
 import Types
 import qualified Translate as T
 import qualified Frame as F
+import STEnv
 
 parseAndTy :: String -> Either TError Ty
 parseAndTy s = case testParseE s of
@@ -27,7 +28,7 @@ parseAndTy s = case testParseE s of
 transExprEnv :: Expr -> Env -> Either TError Ty
 transExprEnv e env = fst <$> runStateT (snd <$> transExpr e) env
 
-getTy :: CheckerState TExprTy -> Either TError Ty
+getTy :: STEnvT TExprTy -> Either TError Ty
 getTy cs = fst <$> runStateT (snd <$> cs) initEnv
 
 isLeft :: Either a b -> Bool
@@ -45,6 +46,9 @@ lookupFTy x envV =
   case M.lookup x envV of
     Nothing              -> Nothing
     Just FunEntry{..}    -> Just (_funEntryArgTys, _funEntryRetTy)
+
+getLevel :: VEnvEntry -> Int
+getLevel FunEntry{..} = intLevel _funEntryLevel
 
 typeCheckerTests :: SpecWith ()
 typeCheckerTests = do
@@ -324,3 +328,18 @@ appelTests = describe "Type checker tests using appel's .tig files" $ do
     parseAndTy queens `shouldBe` Right Unit
   it "checks merge" $ do
     parseAndTy queens `shouldBe` Right Unit
+
+stackFrameTests :: SpecWith ()
+stackFrameTests = 
+  describe "Basic stack frame tests" $ do
+  it "basic nesting level" $ do
+    let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] (Just "string") (SExpr "foo")]
+    let Right Env{..} = execStateT (transDec fDec) initEnv
+    getLevel <$> (M.lookup "f"_envV) `shouldBe` Just 2
+
+  it "deeper nesting level" $ do
+    let fBase = FunDec [FunDef "f" [Field "x" "int" True] (Just "string") (SExpr "foo")]
+    let gDec  = FunDec [FunDef "g" [Field "x" "int" True] (Just "string") (Let [fBase] [SExpr "foo"])]
+    let hDec  = FunDec [FunDef "h" [Field "x" "int" True] (Just "string") (Let [gDec] [SExpr "foo"])]
+    let Right Env{..} = execStateT (transDec hDec) initEnv
+    getLevel <$> (M.lookup "h"_envV) `shouldBe` Just 2
