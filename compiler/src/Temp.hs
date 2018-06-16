@@ -1,58 +1,38 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 
-module Temp (
-   Temp (..)
- , Label
- , GenTemp
- , GenLabel
- , HasTemp (..)
- , initTemp
- , mkTemp
- , mkLabel
- , initLabel
- , mkNamedLabel
-) where
+module Temp where
 
-import Control.Monad.Trans.State.Lazy (State)
+import Control.Monad.Trans.State.Lazy (StateT, State)
+import Control.Monad.Trans.Class (MonadTrans, lift)
+import Control.Monad.Identity (Identity)
 import qualified Control.Monad.Trans.State.Lazy as S
 
-data Temp     = Outermost | Temp Int
-data Label    = Label {_labelNum :: Int, _labelName :: String}
-type GenTemp  = State Temp
-type GenLabel = State Int
+data Temp      = Temp Int  deriving (Eq, Show)
+data Label     = Label Int deriving (Eq, Show)
+type GenTempT  = StateT Temp
+type GenTemp   = GenTempT Identity
 
-initTemp :: GenTemp ()
-initTemp = S.put Outermost
-
---mkTemp :: GenTemp Temp
---mkTemp = do
---   temp <- S.get
---   case temp of
---     Outermost -> do
---       S.put  $ Temp 1
---       return $ Temp 1
---     Temp x    -> do
---       S.put  $ Temp (x + 1)
---       return $ Temp (x + 1)
-
-initLabel :: GenLabel ()
-initLabel = S.put 0
-
-mkLabel :: GenLabel Label
-mkLabel = do
-  labelNum <- S.get
-  S.put $ labelNum + 1
-  return $ Label {_labelNum = labelNum, _labelName = "L" ++ show labelNum}
-
-mkNamedLabel :: String -> GenLabel Label
-mkNamedLabel name = do
- label <- mkLabel
- return $ label {_labelName = name}
-
-
-class (Monad m) => HasTemp m where
-  mkTemp :: m ()
-
-
-
+--nextRTemp :: Monad m => GenTempT m RTemp
+--nextRTemp = do
+--   temp@Temp{..} <- S.get
+--   S.put  $ temp { _tempRTempC = _tempRTempC + 1}
+--   return $ RTemp _tempRTempC
+--
+--nextLabel :: Monad m => GenTempT m Label
+--nextLabel = do
+--   temp@Temp{..} <- S.get
+--   S.put  $ temp { _tempLabelC = _tempLabelC + 1}
+--   return $ Label _tempLabelC $ "L" ++ show _tempLabelC
+--
+--nextNamedLabel :: Monad m => String -> GenTempT m Label
+--nextNamedLabel name = do
+--   temp@Temp{..} <- S.get
+--   S.put  $ temp { _tempLabelC = _tempLabelC + 1}
+--   return $ Label _tempLabelC name
+--
+--class MonadTemp m where
+--  mkRTemp       :: m RTemp
+--  mkLabel       :: m Label
+--  mkNamedLabel  :: String -> m Label
 
