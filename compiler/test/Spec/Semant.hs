@@ -16,6 +16,8 @@ import Parser
 import Semant
 import AST
 import Types
+import qualified Translate as T
+import qualified Frame as F
 
 parseAndTy :: String -> Either TError Ty
 parseAndTy s = case testParseE s of
@@ -32,6 +34,18 @@ isLeft :: Either a b -> Bool
 isLeft (Left _) = True
 isLeft _        = False
 
+lookupVTy :: Id -> EnvV -> Maybe Ty
+lookupVTy x envV =
+  case M.lookup x envV of
+    Nothing              -> Nothing
+    Just VarEntry{..}    -> Just _varEntryTy
+
+lookupFTy :: Id -> EnvV -> Maybe ([Ty], Ty)
+lookupFTy x envV =
+  case M.lookup x envV of
+    Nothing              -> Nothing
+    Just FunEntry{..}    -> Just (_funEntryArgTys, _funEntryRetTy)
+
 typeCheckerTests :: SpecWith ()
 typeCheckerTests = do
   baseTests
@@ -46,35 +60,35 @@ baseTests = describe "Basic type checker tests" $ do
     getTy (transExpr (IExpr 5)) `shouldBe` Right Int
 
   it "typechecks simple vars" $ do
-    getTy (insertVar "x" Int >> transExpr (VExpr (SimpleVar "x"))) `shouldBe` Right Int
+    getTy (insertVar True "x" Int >> transExpr (VExpr (SimpleVar "x"))) `shouldBe` Right Int
 
   it "typechecks array vars" $ do
     getTy $ do
-      insertVar "x" (Array "foo" Int)
+      insertVar True "x" (Array "foo" Int)
       transExpr $ VExpr $ ArrayVar (SimpleVar "x") (IExpr 1)
    `shouldBe` Right Int
 
   it "typechecks record vars 1" $ do
     getTy $ do
-      insertVar "x" $ Record "foo" (Just [("field1", Int), ("field2", String)])
+      insertVar True "x" $ Record "foo" (Just [("field1", Int), ("field2", String)])
       transExpr $ VExpr $ FieldVar (SimpleVar "x") "field1"
    `shouldBe` Right Int
 
   it "typechecks record vars 2" $ do
     getTy $ do
-      insertVar "x" $ Record "foo" (Just [("field1", Int), ("field2", String)])
+      insertVar True "x" $ Record "foo" (Just [("field1", Int), ("field2", String)])
       transExpr $ VExpr $ FieldVar (SimpleVar "x") "field2"
     `shouldBe` Right String
 
   it "adds var typeless decs to the env" $ do
      let vDec          = VarDec $ VarDef "x" Nothing (IExpr 5)
      let Right Env{..} = execStateT (transDec vDec) initEnv
-     M.lookup "x" _envV `shouldBe` Just (VarEntry Int)
+     lookupVTy "x" _envV `shouldBe` Just Int
 
   it "adds var typed decs to the env" $ do
      let vDec          = VarDec $ VarDef "x" (Just "int") (IExpr 5)
      let Right Env{..} = execStateT (transDec vDec) initEnv
-     M.lookup "x" _envV `shouldBe` Just (VarEntry Int)
+     lookupVTy "x" _envV `shouldBe` Just Int
 
   it "rejects incorrectly typed vars" $ do
      let vDec = VarDec $ VarDef "x" (Just "string") (IExpr 5)
@@ -116,12 +130,12 @@ baseTests = describe "Basic type checker tests" $ do
      let tDec = TypeDec [Type "recT" (RecordType ["field1" |: "int", "field2" |: "string"])]
      let vDec = VarDec $ VarDef "x" (Just  "recT") NilExpr
      let Right Env{..} = execStateT (transDec tDec >> transDec vDec) initEnv
-     M.lookup "x" _envV `shouldBe` Just (VarEntry (Record "recT" (Just [("field1", Int), ("field2", String)])))
+     lookupVTy "x" _envV `shouldBe` Just (Record "recT" (Just [("field1", Int), ("field2", String)]))
 
   it "adds function declaration types to the env" $ do
     let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] (Just "string") (SExpr "foo")]
     let Right Env{..} = execStateT (transDec fDec) initEnv
-    M.lookup "f" _envV `shouldBe` Just (FunEntry [Int,String] String)
+    lookupFTy "f" _envV `shouldBe` Just ([Int,String], String)
 
   it "rejects procedures whose bodies don't type match" $ do
     let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] Nothing (SExpr "foo")]
@@ -132,7 +146,7 @@ baseTests = describe "Basic type checker tests" $ do
     let fDec = FunDec [FunDef "f" [Field "x" "int" True, Field "y" "string" True] Nothing
                        (If (BExpr Equal (IExpr 1) (IExpr 1)) UnitExpr)]
     let Right Env{..} = execStateT (transDec fDec) initEnv
-    M.lookup "f" _envV `shouldBe` Just (FunEntry [Int,String] Unit)
+    lookupFTy "f" _envV `shouldBe` Just ([Int,String], Unit)
 
   it "accepts well-typed if statements" $ do
     getTy (transExpr  (If (IExpr 0) UnitExpr)) `shouldBe` Right Unit
