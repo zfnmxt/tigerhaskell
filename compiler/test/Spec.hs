@@ -6,3 +6,4 @@ main :: IO ()
 main = hspec $ do
   parserTests
   typeCheckerTests
+  stackFrameTests
