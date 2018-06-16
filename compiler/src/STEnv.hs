@@ -28,7 +28,7 @@ data Level = Outermost | Level { _levelParent  :: Level
                                } deriving (Eq, Show)
 
 data Access = Access { _accessLevel   :: Level
-                     , _accessFAccess :: F.Access
+                     , _accessLoc     :: F.Access
                      }
               deriving (Eq, Show)
 
