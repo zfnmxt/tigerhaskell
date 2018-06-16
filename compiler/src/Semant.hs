@@ -137,6 +137,17 @@ mkLabel = do
    S.put  $ env { _envLabel = _envLabel + 1}
    return $ Label _envLabel
 
+setLevel :: Level -> CheckerState ()
+setLevel level = do
+  env@Env{..} <- S.get
+  S.put env {_envLevel = level}
+
+resParent :: VEnvEntry -> CheckerState ()
+resParent FunEntry{..} = do
+  case _funEntryLevel of
+    Outermost   -> error "oops"
+    T.Level{..} -> setLevel _levelParent
+
 --------------------------------------------------------------------------------
 -- Expression transformation and type checking
 --------------------------------------------------------------------------------
@@ -349,11 +360,6 @@ transDecHeader (FunDec fs) =
           insertFun escs funId argTys resTy
           return ()
 
---insertVar :: Bool -> Id -> Ty -> CheckerState ()
---insertVar esc id ty = do
---
---insertFun :: [Bool] -> Id -> [Ty] -> Ty -> CheckerState ()
-
 transDecBody :: Dec -> CheckerState ()
 transDecBody (VarDec v@VarDef{..}) =
   case _varDefType of
@@ -384,11 +390,15 @@ transDecBody (TypeDec tys) = mapM_ addTy tys
 
 transDecBody (FunDec fs) = mapM addF fs >> return ()
   where addF f@FunDef{..} = do
-            FunEntry{..}   <- lookupFun _funDefId
-            oldEnv         <- S.get
+            funEntry@FunEntry{..} <- lookupFun _funDefId
+            oldEnv                <- S.get
             let argTyPairs = zipWith (\Field{..} ty -> (_fieldId, ty)) _funDefArgs _funEntryArgTys
             mapM (\(id, ty) -> insertVar True id ty) argTyPairs
+            -- Switch level to function's level
+            setLevel _funEntryLevel
             (_, tBody)     <- transExpr _funDefExpr
+            -- Restore level to parent
+            resParent funEntry
             if tBody == _funEntryRetTy
             then S.put oldEnv
             else genError f "res type doesn't match the type of the body"
