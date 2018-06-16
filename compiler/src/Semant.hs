@@ -22,24 +22,27 @@ import Control.Monad.State.Lazy (lift)
 import Control.Monad.Trans.State.Lazy (StateT, runStateT, evalStateT, execStateT)
 import qualified Data.List as L
 
+data TExpr = TExpr { _tExpr   :: ()
+                   , _tExprTy :: Ty
+                   }
 --------------------------------------------------------------------------------
 -- Expression transformation and type checking
 --------------------------------------------------------------------------------
-transExprB :: Expr -> STEnvT TExprTy
-transExprB Break = return ((), Unit)
+transExprB :: Expr -> STEnvT TExpr
+transExprB Break = return $ TExpr () Unit
 transExprB expr  = transExpr expr
 
-transExpr :: Expr -> STEnvT TExprTy
-transExpr (NilExpr)   = return ((), Nil)
-transExpr (IExpr _)   = return ((), Int)
-transExpr (SExpr _)   = return ((), String)
+transExpr :: Expr -> STEnvT TExpr
+transExpr (NilExpr)   = return $ TExpr () Nil
+transExpr (IExpr _)   = return $ TExpr () Int
+transExpr (SExpr _)   = return $ TExpr () String
 transExpr Break       = genError Break "Breaks must be confined to for and while loops"
-transExpr (VExpr var) = fmap (\ty -> ((), ty)) $ typeCheckVar var
+transExpr (VExpr var) = fmap (\ty -> TExpr () ty) $ typeCheckVar var
 transExpr expr@(Assign v exp) = do
-  (_, vTy) <- transExpr (VExpr v)
-  (_, eTy) <- transExpr exp
+  TExpr _ vTy <- transExpr (VExpr v)
+  TExpr _ eTy <- transExpr exp
   if eTy |> vTy
-  then return ((), Unit)
+  then return $ TExpr () Unit
   else genError expr "type of expr doesn't match type of var"
 
 transExpr expr@(ExprSeq exprs) = do
@@ -52,11 +55,11 @@ transExpr expr@(RecordExpr tId fields) = do
    Record _ (Just fieldTs) -> do
      checks <- nameTypeCheck
      if and checks
-     then return ((), recT)
+     then return $ TExpr () recT
      else genError expr "field name or type don't match with declared record type"
        where nameTypeCheck =
                let f (RecordField{..}, (fname, ftype)) = do
-                     (_, fexprT) <- transExpr _recordFieldExpr
+                     TExpr _ fexprT <- transExpr _recordFieldExpr
                      case ftype of
                        Record recTyId Nothing -> do
                                                  recTy <- lookupTy recTyId
@@ -68,8 +71,8 @@ transExpr expr@(RecordExpr tId fields) = do
 
 transExpr expr@(ArrayExpr tId n v) = do
   arrayT  <- lookupTy tId
-  (_, nT) <- transExpr n
-  (_, vT) <- transExpr v
+  TExpr _ nT <- transExpr n
+  TExpr _ vT <- transExpr v
   case arrayT of
     Array aId t -> if nT == Int
                    then do
@@ -77,77 +80,77 @@ transExpr expr@(ArrayExpr tId n v) = do
                                Record recId Nothing -> lookupTy recId
                                _                    -> return t
                      if vT |> t'
-                      then return ((), Array aId t')
+                      then return $ TExpr () (Array aId t')
                       else genError expr $ "v should have type " ++ show t
                else genError expr "n must have type int"
     _       -> genError expr "type of array expr isn't an array type"
 
 transExpr nExpr@(NExpr expr) = do
-  (_, eType) <- transExpr expr
+  TExpr _ eType <- transExpr expr
   case eType of
-    Int -> return ((), Int)
+    Int -> return $ TExpr () Int
     _   -> genError nExpr "int required"
 
 transExpr expr@(BExpr op l r)
   | op `elem` [Add, Sub, Mult, Div, And, Or] = do
-     (_, lType) <- transExpr l
-     (_, rType) <- transExpr r
+     TExpr _ lType <- transExpr l
+     TExpr _ rType <- transExpr r
      case (lType, rType) of
-       (Int, Int) -> return ((), Int)
+       (Int, Int) -> return $ TExpr () Int
        _          -> genError expr "int required"
   | op `elem` [Gt, Lt, GTE, LTE] = do
-     (_, lType) <- transExpr l
-     (_, rType) <- transExpr r
+     TExpr _ lType <- transExpr l
+     TExpr _ rType <- transExpr r
      case (lType, rType) of
-       (Int, Int)       -> return ((), Int)
-       (String, String) -> return ((), Int)
+       (Int, Int)       -> return $ TExpr () Int
+       (String, String) -> return $ TExpr () Int
        _                -> genError expr "ints or strings required"
   | op `elem` [Equal, NEqual] = do
-     (_, lType) <- transExpr l
-     (_, rType) <- transExpr r
+     TExpr _ lType <- transExpr l
+     TExpr _ rType <- transExpr r
      if lType |> rType || rType |> lType
-     then return ((), Int)
+     then return $ TExpr () Int
      else genError expr $ "ints, strings, array, or recs required"
                                          ++ " left type: " ++ show lType ++ " right type: "
                                          ++ show rType
 
 transExpr expr@(If cond body) = do
-    (_, condT) <- transExpr cond
-    (_, bodyT) <- transExpr body
+    TExpr _ condT <- transExpr cond
+    TExpr _ bodyT <- transExpr body
     case condT of
       Int -> case bodyT of
-                   Unit -> return ((), Unit)
+                   Unit -> return $ TExpr () Unit
                    _    -> genError expr "body of if expression must return no value"
       _   -> genError expr "cond of if expression must have type int"
 
 transExpr expr@(IfE cond body1 body2) = do
-    (_, condT)  <- transExpr cond
-    (_, body1T) <- transExpr body1
-    (_, body2T) <- transExpr body2
+    TExpr _ condT  <- transExpr cond
+    TExpr _ body1T <- transExpr body1
+    TExpr _ body2T <- transExpr body2
     case condT of
       Int -> if body1T == body2T
-             then return ((), body1T)
+             then return $ TExpr () body1T
              else genError expr "both expressions in IFE must have the same type"
       _        -> genError expr "cond of if expression must have type int"
 
 transExpr expr@(While cond body) = do
-    (_, condT) <- transExpr cond
-    (_, bodyT) <- transExprB body
+    TExpr _ condT <- transExpr cond
+    TExpr _ bodyT <- transExprB body
     case condT of
       Int -> case bodyT of
-                Unit -> return ((), Unit)
+                Unit -> return $ TExpr () Unit
                 _    -> genError expr "body of while expression must return no value"
       _   -> genError expr "cond of while expression must have type int"
 
 transExpr expr@(For (Assign (SimpleVar x) min) max body) = do
-  (_, minT)   <- transExpr min
-  (_, maxT)   <- transExpr max
+  TExpr _ minT <- transExpr min
+  TExpr _ maxT <- transExpr max
   oldEnv <- S.get
   transDec (VarDec (VarDef x Nothing min))
-  (_, bodyT)  <- transExprB body
+  TExpr _ bodyT <- transExprB body
   case (minT, maxT) of
     (Int, Int) -> case bodyT of
-                     Unit -> return ((), Unit)
+                     Unit -> return $ TExpr () Unit
                      _    -> genError expr "body of for-exprresion must return no value"
     _          -> genError expr "bounds of for-expression must have type int"
 
@@ -161,12 +164,12 @@ transExpr expr@(Let decs exprs) = do
 transExpr expr@(FCall f args) = do
   oldEnv <- S.get
   fun@FunEntry{..} <- lookupFun f
-  passedArgTys <- mapM (\a -> snd <$> transExpr a) args
+  passedArgTys <- mapM (\a -> _tExprTy <$> transExpr a) args
   if passedArgTys == _funEntryArgTys
-  then S.put oldEnv >> return ((), _funEntryRetTy)
+  then S.put oldEnv >> return (TExpr () _funEntryRetTy)
   else S.put oldEnv >> genError expr "args don't match argtype of function"
 
-transExpr UnitExpr = return ((), Unit)
+transExpr UnitExpr = return $ TExpr () Unit
 transExpr expr = genError expr "pattern match failed"
 
 --------------------------------------------------------------------------------
@@ -238,12 +241,12 @@ transDecBody :: Dec -> STEnvT ()
 transDecBody (VarDec v@VarDef{..}) =
   case _varDefType of
     Nothing -> do
-      (_, t) <- transExpr _varDefExpr
+      TExpr _ t <- transExpr _varDefExpr
       if t == Nil
       then genError v "expressions of type nil must be constrained by a record type"
       else insertVar True _varDefId t
     Just typeId  -> do
-      (_, t)  <- transExpr _varDefExpr
+      TExpr _ t <- transExpr _varDefExpr
       t'      <- lookupTy typeId
       case t of
         Nil -> case t' of
@@ -270,7 +273,7 @@ transDecBody (FunDec fs) = mapM addF fs >> return ()
             mapM (\(id, ty) -> insertVar True id ty) argTyPairs
             -- Switch level to function's level
             setLevel _funEntryLevel
-            (_, tBody)     <- transExpr _funDefExpr
+            TExpr _ tBody     <- transExpr _funDefExpr
             -- Restore level to parent
             resParent funEntry
             if tBody == _funEntryRetTy

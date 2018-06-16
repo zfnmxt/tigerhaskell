@@ -70,8 +70,6 @@ data VEnvEntry = VarEntry {_varEntryTy :: Ty, _varEntryAccess  :: Access}
                           }
                deriving (Show, Eq)
 
-type TExpr = ()
-type TExprTy = (TExpr, Ty)
 type EnvV = Map Id VEnvEntry
 type EnvT = Map TypeId Ty
 data Env  = Env { _envV      :: EnvV

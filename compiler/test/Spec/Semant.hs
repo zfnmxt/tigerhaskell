@@ -26,10 +26,10 @@ parseAndTy s = case testParseE s of
   Right x -> getTy (transExpr x)
 
 transExprEnv :: Expr -> Env -> Either TError Ty
-transExprEnv e env = fst <$> runStateT (snd <$> transExpr e) env
+transExprEnv e env = fst <$> runStateT (_tExprTy <$> transExpr e) env
 
-getTy :: STEnvT TExprTy -> Either TError Ty
-getTy cs = fst <$> runStateT (snd <$> cs) initEnv
+getTy :: STEnvT TExpr -> Either TError Ty
+getTy cs = fst <$> runStateT (_tExprTy <$> cs) initEnv
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
