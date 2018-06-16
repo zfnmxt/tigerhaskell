@@ -7,10 +7,13 @@ module Semant where
 
 import AST
 import Types
-import Temp
+import Frame as F
+import Translate as T
+import Temp (Temp (..), Label (..))
 import qualified Data.Map.Lazy as M
 import Data.Map.Lazy (Map)
 import Data.Set (Set)
+import Data.List (replicate)
 import qualified Data.Set as S
 import qualified Control.Monad.Trans.State.Lazy as S
 import Control.Monad.State.Lazy (lift)
@@ -18,27 +21,30 @@ import Control.Monad.Trans.State.Lazy (StateT, runStateT, evalStateT, execStateT
 import qualified Data.List as L
 
 
-data VEnvEntry = VarEntry {ty :: Ty}
-               | FunEntry {argTys :: [Ty], retTy :: Ty}
+data VEnvEntry = VarEntry {_varEntryTy :: Ty, _varEntryAccess  :: T.Access}
+               | FunEntry { _funEntryArgTys  :: [Ty]
+                          , _funEntryRetTy   :: Ty
+                          , _funEntryLevel   :: T.Level
+                          , _funEntryLabel   :: Label
+                          }
                deriving (Show, Eq)
 
 type TExpr = ()
 type TExprTy = (TExpr, Ty)
 type EnvV = Map Id VEnvEntry
 type EnvT = Map TypeId Ty
-data Env  = Env { _envV    :: EnvV
-                , _envT    :: EnvT
-                , _envTemp :: Temp
+data Env  = Env { _envV      :: EnvV
+                , _envT      :: EnvT
+                , _envTemp   :: Int
+                , _envLabel  :: Int
+                , _envLevel  :: T.Level
+                , _envLevels :: [T.Level]
                 }
 
-type TError = String
-type CheckerState = StateT Env (Either TError)
+type TError        = String
+type CheckerState  = StateT Env (Either TError)
 
-instance HasTemp CheckerState where
-  mkTemp = do
-    env@Env{..} <- S.get
-    let Temp x = _envTemp
-    S.put $ env{_envTemp = Temp (x + 1)}
+_PREDEFINED_FUNCS = 10
 
 genError :: Show a => a -> String -> CheckerState b
 genError x s = lift . Left $ "Error on term: " ++ show x ++ " with error msg: " ++ s
@@ -47,52 +53,65 @@ genError x s = lift . Left $ "Error on term: " ++ show x ++ " with error msg: " 
 -- Initial env
 --------------------------------------------------------------------------------
 baseTEnv = M.fromList [("int", Int), ("string", String)]
-baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit)
-                      , ("flush",     FunEntry [] Unit)
-                      , ("getchar",   FunEntry [] String)
-                      , ("ord",       FunEntry [String] Int)
-                      , ("chr",       FunEntry [Int] String)
-                      , ("size",      FunEntry [String] Int)
-                      , ("substring", FunEntry [String, Int, Int] String)
-                      , ("concat",    FunEntry [String, String] String)
-                      , ("not",       FunEntry [Int] Int)
-                      , ("exit",      FunEntry [Int] Unit)
+baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit Outermost (Label 0)            )
+                      , ("flush",     FunEntry [] Unit Outermost (Label 1)                  )
+                      , ("getchar",   FunEntry [] String Outermost (Label 2)                )
+                      , ("ord",       FunEntry [String] Int Outermost (Label 3)             )
+                      , ("chr",       FunEntry [Int] String Outermost (Label 4)             )
+                      , ("size",      FunEntry [String] Int Outermost (Label 5)             )
+                      , ("substring", FunEntry [String, Int, Int] String Outermost (Label 6))
+                      , ("concat",    FunEntry [String, String] String Outermost (Label 7)  )
+                      , ("not",       FunEntry [Int] Int Outermost (Label 8)                )
+                      , ("exit",      FunEntry [Int] Unit Outermost (Label 9)               )
                       ]
 
-initEnv = Env { _envV    = baseVEnv
-              , _envT    = baseTEnv
-              , _envTemp = Outermost
+initEnv = Env { _envV       = baseVEnv
+              , _envT       = baseTEnv
+              , _envTemp    = 1
+              , _envLabel   = _PREDEFINED_FUNCS
+              , _envLevels  = [T.Level T.Outermost (newFrame (Label 0) [])]
+              , _envLevel   = T.Level T.Outermost (newFrame (Label 0) [])
               }
 
 --------------------------------------------------------------------------------
 -- Env functions
 --------------------------------------------------------------------------------
 
-insertVar :: Id -> Ty -> CheckerState ()
-insertVar id t = do
+insertVar :: Bool -> Id -> Ty -> CheckerState ()
+insertVar esc id ty = do
   env@Env{..} <- S.get
-  S.put $ env {_envV = M.insert id (VarEntry t) _envV}
+  temp        <- mkTemp
+  let (level', access) = T.allocLocal _envLevel temp esc
+  S.put $ env { _envV     = M.insert id (VarEntry ty access) _envV
+              , _envLevel = level'
+              }
 
-insertFun :: Id -> [Ty] -> Ty -> CheckerState ()
-insertFun id argsTy resTy = do
+insertFun :: [Bool] -> Id -> [Ty] -> Ty -> CheckerState ()
+insertFun escs id argTys resTy = do
   env@Env{..} <- S.get
-  S.put env {_envV = M.insert id (FunEntry argsTy resTy) _envV }
+  levelLabel  <- mkLabel
+  funLabel    <- mkLabel
+  let level  = newLevel _envLevel levelLabel escs
+  S.put $ env { _envV      = M.insert id (FunEntry argTys resTy level funLabel) _envV
+              , _envLevel  = level
+              , _envLevels = [level] ++ _envLevels
+              }
 
 lookupVar :: Id -> CheckerState VEnvEntry
 lookupVar id = do
   Env{..} <- S.get
   case M.lookup id _envV of
-    Just (VarEntry t)   -> return (VarEntry t)
-    Just (FunEntry _ _) -> genError id "found function instead of var"
-    Nothing             -> genError id "var not found"
+    Just var@VarEntry{..} -> return var
+    Just FunEntry{..}     -> genError id "found function instead of var"
+    Nothing               -> genError id "var not found"
 
 lookupFun :: Id -> CheckerState VEnvEntry
 lookupFun id = do
   Env{..} <- S.get
   case M.lookup id _envV of
-    Just (VarEntry _ )           -> genError id "found var instead of function"
-    Just (FunEntry argTys retTy) -> return $ FunEntry argTys retTy
-    Nothing                      -> genError id "var not found"
+    Just VarEntry{..}     -> genError id "found var instead of function"
+    Just fun@FunEntry{..} -> return fun
+    Nothing               -> genError id "var not found"
 
 insertTy :: TypeId -> Ty -> CheckerState ()
 insertTy typeId ty = do
@@ -105,6 +124,18 @@ lookupTy tId = do
   case M.lookup tId _envT of
     Just t  -> return t
     Nothing -> genError tId "type not found"
+
+mkTemp :: CheckerState Temp
+mkTemp = do
+   env@Env{..} <- S.get
+   S.put  $ env { _envTemp = _envTemp + 1}
+   return $ Temp _envTemp
+
+mkLabel :: CheckerState Label
+mkLabel = do
+   env@Env{..} <- S.get
+   S.put  $ env { _envLabel = _envLabel + 1}
+   return $ Label _envLabel
 
 --------------------------------------------------------------------------------
 -- Expression transformation and type checking
@@ -244,10 +275,10 @@ transExpr expr@(Let decs exprs) = do
 
 transExpr expr@(FCall f args) = do
   oldEnv <- S.get
-  (FunEntry argTys retTy) <- lookupFun f
+  fun@FunEntry{..} <- lookupFun f
   passedArgTys <- mapM (\a -> snd <$> transExpr a) args
-  if passedArgTys == argTys
-  then S.put oldEnv >> return ((), retTy)
+  if passedArgTys == _funEntryArgTys
+  then S.put oldEnv >> return ((), _funEntryRetTy)
   else S.put oldEnv >> genError expr "args don't match argtype of function"
 
 transExpr UnitExpr = return ((), Unit)
@@ -263,8 +294,8 @@ typeCheckVar var = do
     SimpleVar v -> do
       Env{..} <- S.get
       case M.lookup v _envV of
-        Just (VarEntry vType) -> return vType
-        Just (FunEntry _ _  ) -> genError var "function with same name exists"
+        Just VarEntry{..} -> return _varEntryTy
+        Just FunEntry{..} -> genError var "function with same name exists"
         _                     -> genError var "undefined var"
 
     FieldVar r field -> do
@@ -314,8 +345,14 @@ transDecHeader (FunDec fs) =
           resTy      <- case resType of
                          Nothing       -> return Unit
                          Just resType' -> lookupTy resType'
-          insertFun funId argTys resTy
+          let escs = replicate (length args) True
+          insertFun escs funId argTys resTy
           return ()
+
+--insertVar :: Bool -> Id -> Ty -> CheckerState ()
+--insertVar esc id ty = do
+--
+--insertFun :: [Bool] -> Id -> [Ty] -> Ty -> CheckerState ()
 
 transDecBody :: Dec -> CheckerState ()
 transDecBody (VarDec v@VarDef{..}) =
@@ -324,17 +361,17 @@ transDecBody (VarDec v@VarDef{..}) =
       (_, t) <- transExpr _varDefExpr
       if t == Nil
       then genError v "expressions of type nil must be constrained by a record type"
-      else insertVar _varDefId t
+      else insertVar True _varDefId t
     Just typeId  -> do
       (_, t)  <- transExpr _varDefExpr
       t'      <- lookupTy typeId
       case t of
         Nil -> case t' of
-                 Record _ _ -> insertVar _varDefId t'
+                 Record _ _ -> insertVar True _varDefId t'
                  _          -> genError v
                                "expressions of type nil must be constrained to records"
         _   -> if t == t'
-               then insertVar _varDefId t'
+               then insertVar True _varDefId t'
                else genError v "var type does not match expression type"
 
 transDecBody (TypeDec tys) = mapM_ addTy tys
@@ -346,13 +383,13 @@ transDecBody (TypeDec tys) = mapM_ addTy tys
               _                 -> return ()
 
 transDecBody (FunDec fs) = mapM addF fs >> return ()
-  where addF f@(FunDef funId args resType body) = do
-            FunEntry argTs resTy <- lookupFun funId
-            oldEnv <- S.get
-            let argTyPairs = zipWith (\Field{..} ty -> (_fieldId, ty)) args argTs
-            mapM (\(id, ty) -> insertVar id ty) argTyPairs
-            (_, tBody) <- transExpr body
-            if tBody == resTy
+  where addF f@FunDef{..} = do
+            FunEntry{..}   <- lookupFun _funDefId
+            oldEnv         <- S.get
+            let argTyPairs = zipWith (\Field{..} ty -> (_fieldId, ty)) _funDefArgs _funEntryArgTys
+            mapM (\(id, ty) -> insertVar True id ty) argTyPairs
+            (_, tBody)     <- transExpr _funDefExpr
+            if tBody == _funEntryRetTy
             then S.put oldEnv
             else genError f "res type doesn't match the type of the body"
 
