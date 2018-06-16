@@ -1,6 +1,6 @@
 module Temp where
 
-import Frame
+import Registers
 
 data Temp      = Temp Int  deriving (Eq, Show)
                | RTemp Reg
