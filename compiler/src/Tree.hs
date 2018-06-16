@@ -4,7 +4,7 @@ import qualified Temp as T
 
 data Exp = Const Int
          | Name T.Label
-         | TempE T.Temp
+         | IReg T.Temp
          | BinOp BinOp Exp Exp
          | Mem Exp
          | Call Exp [Exp]
