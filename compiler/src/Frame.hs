@@ -4,7 +4,7 @@ module Frame where
 
 import Temp (Temp, Label)
 
-_VARSIZE = 4
+_WORDSIZE = 4
 
 data Access = InFrame Int | InReg Temp
   deriving (Eq, Show)
@@ -17,15 +17,18 @@ data Frame = Frame { _frameLabel     :: Label
                    } deriving (Eq, Show)
 
 lVarOffset :: Int -> Int
-lVarOffset locals = locals * (- _VARSIZE)
+lVarOffset locals = locals * (- _WORDSIZE)
 
 newFrame :: Label -> [Bool] -> Frame
-newFrame name args =
-  Frame { _frameLabel     = name
-        , _frameEscapes   = args
-        , _frameLocals    = []
-        , _frameLocalsLen = 0
-        }
+newFrame name escs = frame
+  where f next (frame, as) = (\(frame', a) -> (frame, a:as)) $ allocMem frame
+        initFrame = Frame { _frameLabel    = name
+                         , _frameEscapes   = escs
+                         , _frameFormals   = formals
+                         , _frameLocals    = []
+                         , _frameLocalsLen = 0
+                         }
+        (frame, formals) = foldr f (initFrame, []) escs -- only works for escaping args
 
 allocMem :: Frame -> (Frame, Access)
 allocMem frame@Frame{..} = (frame', access)
