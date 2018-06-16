@@ -2,33 +2,45 @@
 
 module Translate where
 
-import qualified Frame as F
+import Tree hiding (Exp)
+import qualified Tree
+import Frame
 import Temp
+import STEnv
 
-data Level = Outermost | Level { _levelParent  :: Level
-                               , _levelFrame   :: F.Frame
-                               } deriving (Eq, Show)
+data Exp = Ex Tree.Exp
+         | Nx Stm
+         | Cx (Label -> Label -> Stm)
 
-data Access = Access { _accessLevel   :: Level
-                     , _accessFAccess :: F.Access
-                     }
-              deriving (Eq, Show)
+seqMany :: [Stm] -> Stm
+seqMany []     = error "oops"
+seqMany (s:ss) = foldr Seq s ss
 
-newLevel :: Level -> Label -> [Bool] -> Level
-newLevel parent name args = Level parent frame
-  where frame = F.newFrame name (True:args)
+unEx :: Exp -> STEnvT Tree.Exp
+unEx (Ex e)      = return $ e
+unEx (Nx s)      = return $ ESeq s (Const 0)
+unEx (Cx genStm) = do
+  r <- mkTemp
+  t <- mkLabel
+  f <- mkLabel
+  let stms = [ Move (TempE r) (Const 1)
+             , genStm t f
+             , StmLabel f
+             , Move (TempE r) (Const 0)
+             , StmLabel t
+             ]
+  return $ ESeq (seqMany stms) (TempE r)
 
+unNX :: Exp -> STEnvT Tree.Stm
+unNX (Ex e) = return $ StmExp e
+unNX (Nx s) = return s
+unNx (Cx genStm) = do
+  e <- unEx (Cx genStm)
+  unNX (Ex e)
 
-allocLocal :: Level -> Temp -> Bool -> (Level, Access)
-allocLocal Outermost _ _ = error "oops"
-allocLocal level@Level{..} temp esc = (level', Access level' fAccess')
-  where level' = level { _levelFrame = frame'}
-        (frame', fAccess')
-         | esc       = F.allocMem _levelFrame
-         | otherwise = F.allocReg _levelFrame temp
-
-
-
-
+unCX :: Exp -> STEnvT (Label -> Label -> Stm)
+unCX (Ex e)      = return $ \t f -> StmExp e
+unCX (Nx s)      = return $ \t f -> s
+unCX (Cx genStm) = return genStm
 
 
