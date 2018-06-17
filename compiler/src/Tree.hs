@@ -2,30 +2,34 @@ module Tree where
 
 import qualified Temp as T
 
-data Exp = Const Int
-         | Name T.Label
-         | IReg T.Temp
-         | BinOp BinOp Exp Exp
-         | Mem Exp
-         | Call Exp [Exp]
-         | ESeq Stm Exp
+data TreeExp = Const Int
+             | Name T.Label
+             | IReg T.Temp
+             | BinOp BinOp TreeExp TreeExp
+             | Mem TreeExp
+             | Call TreeExp [TreeExp]
+             | ESeq TreeStm TreeExp
+             deriving (Show, Eq)
 
-data Stm = Move Exp Exp
-         | StmExp Exp
-         | Jump Exp [T.Label]
-         | CJump { _cJumpRelOp :: RelOp
-                 , _cJumpExp1  :: Exp
-                 , _cJumpExp2  :: Exp
-                 , _cJumpTrue  :: T.Label
-                 , _cJumpFalse :: T.Label
-                 }
-         | Seq Stm Stm
-         | StmLabel T.Label
+data TreeStm = Move TreeExp TreeExp
+             | StmExp TreeExp
+             | Jump TreeExp [T.Label]
+             | CJump { _cJumpRelOp :: RelOp
+                     , _cJumpExp1  :: TreeExp
+                     , _cJumpExp2  :: TreeExp
+                     , _cJumpTrue  :: T.Label
+                     , _cJumpFalse :: T.Label
+                     }
+             | Seq TreeStm TreeStm
+             | StmLabel T.Label
+             deriving (Show, Eq)
 
 data BinOp = Plus | Sub | Mul | Div | And | Or
              | LShift | RShift | ARShift | XOR
+             deriving (Show, Eq)
 data RelOp = Equal | NEqual | Lt | Gt | GTE | LTE
              | ULt | ULTE | UGTE | UGt
+             deriving (Show, Eq)
 
 
 

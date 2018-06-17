@@ -138,7 +138,7 @@ eof = do
   s <- getString
   if s == [] then return () else reject
 
-number :: Error e => Parser e Integer
+number :: Error e => Parser e Int
 number = do
   s <- many1 $ satisfy isNumber
   return $ read s

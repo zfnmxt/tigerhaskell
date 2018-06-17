@@ -62,7 +62,7 @@ data Expr = VExpr Var
           | NilExpr
           | ExprSeq [Expr]
           | UnitExpr
-          | IExpr Integer
+          | IExpr Int
           | SExpr String
           | BExpr BOp Expr Expr
           | NExpr Expr

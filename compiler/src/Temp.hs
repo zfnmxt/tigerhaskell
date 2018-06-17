@@ -2,6 +2,7 @@ module Temp where
 
 import Registers
 
-data Temp      = Temp Int  deriving (Eq, Show)
+data Temp      = Temp Int 
                | RTemp Reg
+               deriving (Eq, Show)
 data Label     = Label Int deriving (Eq, Show)
