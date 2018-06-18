@@ -71,7 +71,8 @@ treeTests =
      let fDec    = FunDec [FunDef "f" [Field "y" "int" True] (Just "int") (IExpr 1)]
      let letExpr = Let [fDec] [FCall "f" [IExpr 1]]
      let tExpr   = Ex $ Mem $ BinOp T.Plus (IReg (RTemp RBX)) (Const (-8))
-     evalStateT' (transExpr letExpr) `shouldBe` Right (TExpr tExpr Int)
+     evalStateT' (transExpr letExpr) `shouldBe`
+       Right (TExpr (Ex (Call (Name (Label 11)) [Mem (Const 0),Const 1])) Int)
   it "nested simple var" $ do
      let vDec  = VarDec $ VarDef "x" (Just "int") (IExpr 5)
      let fDec  = FunDec [FunDef "f" [Field "y" "int" True] (Just "int") (VExpr (SimpleVar "x"))]
