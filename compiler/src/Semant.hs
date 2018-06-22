@@ -1,27 +1,28 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
 
 module Semant where
 
-import AST
-import Types
-import Frame as F
-import Translate as T
-import Translate 
-import Temp (Temp (..), Label (..))
-import STEnv
+import           AST
+import           Frame                          as F
+import           STEnv
+import           Temp                           (Label (..), Temp (..))
+import           Translate                      as T
+import           Translate
+import           Types
 
-import qualified Data.Map.Lazy as M
-import Data.Map.Lazy (Map)
-import Data.Set (Set)
-import Data.List (replicate)
-import qualified Data.Set as S
+import           Control.Monad.State.Lazy       (lift)
+import           Control.Monad.Trans.State.Lazy (StateT, evalStateT, execStateT,
+                                                 runStateT)
 import qualified Control.Monad.Trans.State.Lazy as S
-import Control.Monad.State.Lazy (lift)
-import Control.Monad.Trans.State.Lazy (StateT, runStateT, evalStateT, execStateT)
-import qualified Data.List as L
+import           Data.List                      (replicate)
+import qualified Data.List                      as L
+import           Data.Map.Lazy                  (Map)
+import qualified Data.Map.Lazy                  as M
+import           Data.Set                       (Set)
+import qualified Data.Set                       as S
 
 data TExpr = TExpr { _tExpr   :: TransExp
                    , _tExprTy :: Ty
@@ -43,10 +44,10 @@ transExpr Break       = genError Break "Breaks must be confined to for and while
 transExpr (VExpr var) =
   case var of
     SimpleVar id -> do
-      ty           <- typeCheckVar var
-      VarEntry{..} <- lookupVar id
-      cLevel       <- getLevel
-      tExp         <- simpleVar _varEntryAccess cLevel
+      ty                <- typeCheckVar var
+      VarEntry{..}      <- lookupVar id
+      cLevel            <- getLevel
+      tExp              <- simpleVar _varEntryAccess cLevel
       return $ TExpr tExp ty
     ArrayVar a iExpr -> do
       ty                 <- typeCheckVar var
@@ -112,17 +113,21 @@ transExpr expr@(ArrayExpr tId n v) = do
     _       -> genError expr "type of array expr isn't an array type"
 
 transExpr nExpr@(NExpr expr) = do
-  TExpr _ eType <- transExpr expr
+  TExpr eTrans eType <- transExpr expr
   case eType of
-    Int -> return $ TExpr NoExp Int
+    Int -> do
+      tExp <- tNeg eTrans
+      return $ TExpr tExp Int
     _   -> genError nExpr "int required"
 
 transExpr expr@(BExpr op l r)
   | op `elem` [Add, Sub, Mult, Div, And, Or] = do
-     TExpr _ lType <- transExpr l
-     TExpr _ rType <- transExpr r
+     TExpr lTrans lType <- transExpr l
+     TExpr rTrans rType <- transExpr r
      case (lType, rType) of
-       (Int, Int) -> return $ TExpr NoExp Int
+       (Int, Int) -> do
+        tExp <- tArith op lTrans rTrans
+        return $ TExpr tExp Int
        _          -> genError expr "int required"
   | op `elem` [Gt, Lt, GTE, LTE] = do
      TExpr _ lType <- transExpr l
@@ -214,7 +219,7 @@ typeCheckVar var = do
       case M.lookup v _envV of
         Just VarEntry{..} -> return _varEntryTy
         Just FunEntry{..} -> genError var "function with same name exists"
-        _                     -> genError var "undefined var"
+        _                 -> genError var "undefined var"
 
     FieldVar r field -> do
       rTy <- typeCheckVar r
