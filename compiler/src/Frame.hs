@@ -18,6 +18,7 @@ data Frame = Frame { _frameLabel      :: Label
                    , _frameLocalsLen  :: Int
                    , _framePointer    :: Temp
                    , _frameStatic     :: FAccess
+                   , _frameWordSize   :: Int
                    } deriving (Eq, Show)
 
 lVarOffset :: Int -> Int
@@ -33,6 +34,7 @@ newFrame name escs = frame
                          , _frameLocalsLen = 0
                          , _framePointer   = RTemp RBX
                          , _frameStatic    = InFrame 0
+                         , _frameWordSize  = _WORDSIZE
                          }
         (frame, formals) = foldr f (initFrame, []) escs -- only works for escaping args
 
