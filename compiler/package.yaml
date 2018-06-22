@@ -24,6 +24,7 @@ dependencies:
 - containers
 - mtl
 - transformers
+- pretty-show
 
 library:
   source-dirs: src
