@@ -2,6 +2,7 @@
 
 module Translate where
 
+import qualified AST 
 import           AST (Id)
 import           Data.List (elemIndex)
 import           Frame
@@ -154,4 +155,22 @@ recordVar ty rTrans f = do
           case elemIndex f (map fst fs) of
             Just i  -> i
             Nothing -> error "oops"
+
+tArith :: AST.BOp -> TransExp -> TransExp -> STEnvT TransExp
+tArith astOP lTrans rTrans = do
+  l <- unEx lTrans
+  r <- unEx rTrans
+  let op = case astOP of
+            AST.Add  -> Plus
+            AST.Sub  -> Sub
+            AST.Mult -> Mul
+            AST.Div  -> Div
+            AST.And  -> And
+            AST.Or   -> Or
+  return $ Ex $ BinOp op l r
+
+tNeg :: TransExp -> STEnvT TransExp
+tNeg eTrans = do
+  e <- unEx eTrans
+  return $ Ex $ BinOp Sub (Const 0) e
 
