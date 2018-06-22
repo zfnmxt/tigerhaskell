@@ -46,7 +46,7 @@ data Var = SimpleVar Id
            deriving (Show, Eq)
 
 data BOp = Add | Sub | Mult | Div | Equal | NEqual
-         | Gt | Lt | GTE | LTE | And | Or
+         | Gt | Lt | GTE | LTE 
          deriving (Show, Eq, Enum)
 
 data Assoc = L | R | None deriving (Show, Eq)

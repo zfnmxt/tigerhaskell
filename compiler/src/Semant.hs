@@ -121,7 +121,7 @@ transExpr nExpr@(NExpr expr) = do
     _   -> genError nExpr "int required"
 
 transExpr expr@(BExpr op l r)
-  | op `elem` [Add, Sub, Mult, Div, And, Or] = do
+  | op `elem` [Add, Sub, Mult, Div] = do
      TExpr lTrans lType <- transExpr l
      TExpr rTrans rType <- transExpr r
      case (lType, rType) of

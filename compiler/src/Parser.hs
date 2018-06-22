@@ -66,10 +66,10 @@ exprP = do
         ctoken' (return expr)
 
 orP :: TigerP Expr
-orP = ctoken' $ chainl1 andP (ctoken' (char '|') >> return (BExpr Or))
+orP = ctoken' $ chainl1 andP (ctoken' (char '|') >> return (\e1 e2 -> IfE e1 (IExpr 1) e2))
 
 andP :: TigerP Expr
-andP = chainl1 comparisonP (ctoken' (char '&') >> return (BExpr And))
+andP = chainl1 comparisonP (ctoken' (char '&') >> return (\e1 e2 -> IfE e1 e2 (IExpr 0)))
 
 comparisonP :: TigerP Expr
 comparisonP = comparisonP' <|> addSubP

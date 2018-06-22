@@ -165,8 +165,6 @@ tArith astOP lTrans rTrans = do
             AST.Sub  -> Sub
             AST.Mult -> Mul
             AST.Div  -> Div
-            AST.And  -> And
-            AST.Or   -> Or
   return $ Ex $ BinOp op l r
 
 tNeg :: TransExp -> STEnvT TransExp
