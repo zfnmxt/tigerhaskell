@@ -48,7 +48,21 @@ transExpr (VExpr var) =
       cLevel       <- getLevel
       tExp         <- simpleVar _varEntryAccess cLevel
       return $ TExpr tExp ty
-    _         -> fmap (\ty -> TExpr NoExp ty) $ typeCheckVar var
+    ArrayVar a iExpr -> do
+      ty                 <- typeCheckVar var
+      (TExpr aTrans aTy) <- transExpr (VExpr a)
+      (TExpr iTrans iTy) <- transExpr iExpr
+      case iTy of
+        Int -> do
+               tExp <- arrayVar aTrans iTrans
+               return $ TExpr tExp ty
+        _   -> genError var "array index must have type int"
+    FieldVar r f -> do
+      ty                 <- typeCheckVar var
+      rTy                <- typeCheckVar r
+      (TExpr rTrans rTy) <- transExpr (VExpr r)
+      tExp               <- recordVar rTy rTrans f
+      return $ TExpr tExp ty
 
 transExpr expr@(Assign v exp) = do
   TExpr _ vTy <- transExpr (VExpr v)
