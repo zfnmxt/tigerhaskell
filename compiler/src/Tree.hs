@@ -24,12 +24,20 @@ data TreeStm = Move TreeExp TreeExp
              | StmLabel T.Label
              deriving (Show, Eq)
 
+(>>$) :: TreeStm -> TreeExp -> TreeExp
+(>>$) = ESeq
+
+infixr 5 >>$
+
+(>>>) :: TreeStm -> TreeStm -> TreeStm
+(>>>) = Seq
+
+infixr 5 >>>
+
 data BinOp = Plus | Sub | Mul | Div | And | Or
              | LShift | RShift | ARShift | XOR
              deriving (Show, Eq)
 data RelOp = Equal | NEqual | Lt | Gt | GTE | LTE
              | ULt | ULTE | UGTE | UGt
              deriving (Show, Eq)
-
-
 
