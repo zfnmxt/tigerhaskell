@@ -2,11 +2,13 @@
 
 module Translate where
 
-import Tree
-import Frame
-import Temp
-import STEnv
-import Types
+import           AST (Id)
+import           Data.List (elemIndex)
+import           Frame
+import           STEnv
+import           Temp
+import           Tree
+import           Types
 
 data TransExp = Ex TreeExp
               | Nx TreeStm
@@ -53,40 +55,63 @@ unNx (Cx genStm) = do
   unNX (Ex e)
 
 unCX :: TransExp -> STEnvT (Label -> Label -> TreeStm)
-uxCX (Const 0)   = return $ \_ f -> Jump (Name f) [f]
-uxCX (Const 1)   = return $ \t _ -> Jump (Name t) [t]
+uxCX (Const 0) = return $ \_ f -> Jump (Name f) [f]
+uxCX (Const 1) = return $ \t _ -> Jump (Name t) [t]
 unCX (Ex e)      = return $ \t f -> CJump NEqual (Const 0) e t f
 unCX (Nx _)      = error "oops"
 unCX (Cx genStm) = return genStm
 
 
--- get frame addr
-followStatic :: VAccess -> Level -> TreeExp
-followStatic vAccess@VAccess{..} cLevel
-  | intLevel dLevel > intLevel cLevel        = error "oops"
-  | _frameLabel dFrame == _frameLabel cFrame = IReg fP
-  | otherwise                                =
-    Mem $ BinOp Plus (followStatic vAccess cParent) parentFP
-    where dLevel               = _accessLevel
-          cFrame               = _levelFrame cLevel
-          dFrame               = _levelFrame dLevel
-          InFrame staticOffset = _frameStatic cFrame
-          cParent              = _levelParent cLevel
-          fP                   = _framePointer cFrame
-          parentFP             = Mem $ BinOp Plus (IReg fP) (Const staticOffset)
+-- Get FP of currnet level
+levelFP :: Level -> Temp
+levelFP Level{..} = _framePointer _levelFrame
+
+-- Get the static link of the current level
+levelSL :: Level -> TreeExp
+levelSL level = Mem (BinOp Plus (Const sLOffset) (IReg fP))
+  where cFrame           = _levelFrame level
+        InFrame sLOffset = _frameStatic cFrame
+        fP               = _framePointer cFrame
+
+-- Get the static link of the level's parent
+pLevelSL :: Level -> TreeExp
+pLevelSL level = Mem (BinOp Plus (Const pSLOffset) (levelSL level))
+  where pFrame            = _levelFrame (_levelParent level)
+        InFrame pSLOffset = _frameStatic pFrame
+
+levelOffset :: Int -> Level -> TreeExp
+levelOffset offset level = Mem (BinOp Plus (Const offset) (IReg fP))
+  where cFrame           = _levelFrame level
+        fP               = _framePointer cFrame
+
+levelLabel :: Level -> Label
+levelLabel Level{..} = _frameLabel _levelFrame
+
+indexOffset :: Int -> TreeExp -> TreeExp
+indexOffset offset addr = Mem (BinOp Plus (Const offset) addr)
+
+-- Get address of var in memory
+varIndex :: VAccess -> Level -> TreeExp
+varIndex vAccess@VAccess{..} cLevel
+  | intLevel _accessLevel > intLevel cLevel = error "oops"
+  | otherwise                               =
+    buildIndex cLevel (IReg (levelFP cLevel))
+    where InFrame vOffset = _accessLoc
+          buildIndex cLevel tree
+           | levelLabel cLevel == levelLabel _accessLevel =
+               Mem (BinOp Plus (Const vOffset) tree)
+           | otherwise =
+               let pLevel          = _levelParent cLevel in
+               let InFrame sOffset = _frameStatic $ _levelFrame cLevel in
+                 buildIndex pLevel (Mem (BinOp Plus (Const sOffset) tree))
 
 -- uses frame addr and FAccess to yield TreeExp
 fAccessToTree :: FAccess -> TreeExp -> TreeExp
 fAccessToTree (InFrame offset) frameAddr = Mem $ BinOp Plus frameAddr (Const offset)
 fAccessToTree (InReg reg) _              = IReg reg
 
-vAccessToTree :: VAccess -> Level -> TreeExp
-vAccessToTree vAccess@VAccess{..} cLevel =
-  let frameAddr = followStatic vAccess cLevel
-  in fAccessToTree _accessLoc frameAddr
-
 simpleVar :: VAccess -> Level -> STEnvT TransExp
-simpleVar vAccess cLevel = return . Ex $ vAccessToTree vAccess cLevel
+simpleVar vAccess cLevel = return . Ex $ varIndex vAccess cLevel
 
 iExpr :: Int -> STEnvT TransExp
 iExpr x = return $ Ex (Const x)
@@ -102,9 +127,6 @@ fCall f@FunEntry{..} cLevel transArgs = do
     Unit -> return $ Nx $ StmExp transCall
     _    -> return $ Ex transCall
 
-levelLabel :: Level -> Label
-levelLabel Level{..} = _frameLabel _levelFrame
-
 getStaticLink :: VEnvEntry -> Level -> TreeExp
 getStaticLink f cLevel
   | levelLabel fLevel == levelLabel cLevel =
@@ -115,4 +137,21 @@ getStaticLink f cLevel
         InFrame slLoc  = _frameStatic fFrame
         cParent        = _levelParent cLevel
 
+arrayVar :: TransExp -> TransExp -> STEnvT TransExp
+arrayVar aTrans iTrans = do
+  i <- unEx iTrans
+  a <- unEx aTrans
+  let elemOffset = BinOp Mul i (Const _WORDSIZE)
+  return $ Ex $ Mem $ BinOp Plus a elemOffset
+
+recordVar :: Ty -> TransExp -> Id -> STEnvT TransExp
+recordVar ty rTrans f = do
+  r <- unEx rTrans
+  let i = getFieldPos f ty
+      fieldOffset = BinOp Mul (Const i) (Const _WORDSIZE)
+  return $ Ex $ Mem $ BinOp Plus r fieldOffset
+  where getFieldPos f (Record _ (Just fs)) =
+          case elemIndex f (map fst fs) of
+            Just i  -> i
+            Nothing -> error "oops"
 
