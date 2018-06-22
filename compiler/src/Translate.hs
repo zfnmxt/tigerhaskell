@@ -30,7 +30,7 @@ instance Eq TransExp where
 
 seqMany :: [TreeStm] -> TreeStm
 seqMany []     = error "oops"
-seqMany (s:ss) = foldr Seq s ss
+seqMany (s:ss) = foldr (>>>) s ss
 
 unEx :: TransExp -> STEnvT TreeExp
 unEx NoExp       = return $ Const 0
@@ -40,27 +40,27 @@ unEx (Cx genStm) = do
   r <- mkTemp
   t <- mkLabel
   f <- mkLabel
-  let stms = [ Move (IReg r) (Const 1)
-             , genStm t f
-             , StmLabel f
-             , Move (IReg r) (Const 0)
-             , StmLabel t
-             ]
-  return $ ESeq (seqMany stms) (IReg r)
+  let stms = seqMany [ Move (IReg r) (Const 1)
+                     , genStm t f
+                     , StmLabel f
+                     , Move (IReg r) (Const 0)
+                     , StmLabel t
+                     ]
+  return $ stms >>$ IReg r
 
-unNX :: TransExp -> STEnvT TreeStm
-unNX (Ex e) = return $ StmExp e
-unNX (Nx s) = return s
-unNx (Cx genStm) = do
+unNx :: TransExp -> STEnvT TreeStm
+unNx (Ex e) = return $ StmExp e
+unNx (Nx s) = return s
+unNX (Cx genStm) = do
   e <- unEx (Cx genStm)
-  unNX (Ex e)
+  unNx (Ex e)
 
-unCX :: TransExp -> STEnvT (Label -> Label -> TreeStm)
-uxCX (Const 0) = return $ \_ f -> Jump (Name f) [f]
-uxCX (Const 1) = return $ \t _ -> Jump (Name t) [t]
-unCX (Ex e)      = return $ \t f -> CJump NEqual (Const 0) e t f
-unCX (Nx _)      = error "oops"
-unCX (Cx genStm) = return genStm
+unCx :: TransExp -> STEnvT (Label -> Label -> TreeStm)
+uxCx (Const 0)   = return $ \_ f -> Jump (Name f) [f]
+uxCx (Const 1)   = return $ \t _ -> Jump (Name t) [t]
+unCx (Ex e)      = return $ \t f -> CJump NEqual (Const 0) e t f
+unCx (Nx _)      = error "oops"
+unCx (Cx genStm) = return genStm
 
 
 -- Get FP of currnet level
@@ -171,4 +171,77 @@ tNeg :: TransExp -> STEnvT TransExp
 tNeg eTrans = do
   e <- unEx eTrans
   return $ Ex $ BinOp Sub (Const 0) e
+
+tIFE :: TransExp -> TransExp -> TransExp -> STEnvT TransExp
+tIFE condTrans (Nx thenStm) (Nx elseStm) = do
+  condGenStm <- unCx condTrans
+  tLabel <- mkLabel
+  fLabel <- mkLabel
+  zLabel <- mkLabel
+  return $ Nx $ seqMany [ condGenStm tLabel fLabel
+                        , StmLabel tLabel
+                        , thenStm
+                        , Jump (Name zLabel) [zLabel]
+                        , StmLabel fLabel
+                        , elseStm
+                        , StmLabel zLabel
+                        ]
+tIFE condTrans (Cx thenCond) (Cx elseCond) = do -- (e1 & e2 | e3)
+  condGenStm <- unCx condTrans
+  yLabel <- mkLabel
+  zLabel <- mkLabel
+  return $ Cx $ \tLabel fLabel ->
+    seqMany [ condGenStm zLabel yLabel
+            , StmLabel zLabel
+            , thenCond tLabel yLabel
+            , StmLabel yLabel
+            , elseCond tLabel fLabel
+             ]
+tIFE condTrans (Cx thenCond) elseTrans = do -- (e1 & e2)
+  condGenStm <- unCx condTrans
+  yLabel  <- mkLabel
+  zLabel  <- mkLabel
+  elseExp <- unEx elseTrans
+  return $ Cx $ \tLabel fLabel ->
+    seqMany [ condGenStm zLabel yLabel
+            , StmLabel zLabel
+            , thenCond tLabel fLabel
+            , StmLabel yLabel
+            , CJump NEqual (Const 0) elseExp tLabel fLabel
+            ]
+tIFE condTrans thenTrans (Cx elseCond) = do-- (e1 | e3)
+  condGenStm <- unCx condTrans
+  yLabel  <- mkLabel
+  zLabel  <- mkLabel
+  thenExp <- unEx thenTrans
+  return $ Cx $ \tLabel fLabel ->
+    seqMany [ condGenStm yLabel zLabel
+            , StmLabel yLabel
+            , CJump NEqual (Const 0) thenExp tLabel fLabel
+            , StmLabel zLabel
+            , elseCond tLabel fLabel
+            ]
+tIFE condTrans thenTrans elseTrans = do
+  condGenStm <- unCx condTrans
+  thenExp    <- unEx thenTrans
+  elseExp    <- unEx elseTrans
+  r          <- mkTemp
+  tLabel     <- mkLabel
+  fLabel     <- mkLabel
+  jLabel     <- mkLabel
+  return $ Ex $
+    (seqMany [ condGenStm tLabel fLabel
+            , StmLabel tLabel
+            , Move (IReg r) thenExp
+            , Jump (Name jLabel) [jLabel]
+            , StmLabel fLabel
+            , Move (IReg r) elseExp
+            , Jump (Name jLabel) [jLabel]
+            , StmLabel jLabel
+            ])
+    >>$ IReg r
+   
+
+
+--tIFE condTrans thenTrans elseTrans = do
 
