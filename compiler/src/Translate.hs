@@ -228,16 +228,12 @@ tIFE condTrans thenTrans elseTrans = do
   r          <- mkTemp
   tLabel     <- mkLabel
   fLabel     <- mkLabel
-  jLabel     <- mkLabel
   return $ Ex $
-    (seqMany [ condGenStm tLabel fLabel
-            , StmLabel tLabel
-            , Move (IReg r) thenExp
-            , Jump (Name jLabel) [jLabel]
-            , StmLabel fLabel
-            , Move (IReg r) elseExp
-            , Jump (Name jLabel) [jLabel]
-            , StmLabel jLabel
+    (seqMany [ Move (IReg r) thenExp
+             , condGenStm tLabel fLabel
+             , StmLabel fLabel
+             , Move (IReg r) elseExp
+             , StmLabel tLabel
             ])
     >>$ IReg r
    
