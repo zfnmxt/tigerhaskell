@@ -338,7 +338,21 @@ tArray nTrans vTrans = do
   v <- unEx vTrans
   return $ Ex $  externCall _INITARRAY [n, v]
 
-
-
+tWhileCond :: TransExp -> STEnvT (TransExp -> STEnvT TransExp)
+tWhileCond condTrans = do
+  condGenStm <- unCx condTrans
+  testLabel  <- mkLabel
+  doneLabel  <- mkLabel
+  tLabel     <- mkLabel
+  pushBreak doneLabel
+  return $ \bodyTrans -> do
+    bodyStm <- unNx bodyTrans
+    return $ Nx $ seqMany [ StmLabel testLabel
+                          , condGenStm tLabel doneLabel
+                          , StmLabel tLabel
+                          , bodyStm
+                          , Jump (Name testLabel) [testLabel]
+                          , StmLabel doneLabel
+                          ]
 
 

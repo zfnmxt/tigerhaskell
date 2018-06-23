@@ -186,12 +186,18 @@ transExpr expr@(IfE cond body1 body2) = do
       _        -> genError expr "cond of if expression must have type int"
 
 transExpr expr@(While cond body) = do
-    TExpr _ condT <- transExpr cond
-    TExpr _ bodyT <- transExprB body
-    case condT of
-      Int -> case bodyT of
-                Unit -> return $ TExpr NoExp Unit
-                _    -> genError expr "body of while expression must return no value"
+    TExpr condTrans condTy <- transExpr cond
+    TExpr bodyTrans bodyTy <- transExprB body
+    case condTy of
+      Int -> do
+        tExpFunc               <- tWhileCond condTrans
+        TExpr bodyTrans bodyTy <- transExprB body
+        case bodyTy of
+          Unit -> do
+                  tExp <- tExpFunc bodyTrans
+                  popBreak
+                  return $ TExpr tExp Unit
+          _    -> popBreak >> genError expr "body of while expression must return no value"
       _   -> genError expr "cond of while expression must have type int"
 
 transExpr expr@(For (Assign (SimpleVar x) min) max body) = do

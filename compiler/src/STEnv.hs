@@ -79,6 +79,7 @@ data Env  = Env { _envV      :: EnvV
                 , _envLabel  :: Int
                 , _envLevel  :: Level
                 , _envLevels :: [Level]
+                , _envBreak  :: [Label]
                 } deriving (Show, Eq)
 
 --------------------------------------------------------------------------------
@@ -105,6 +106,7 @@ initEnv = Env { _envV       = baseVEnv
               , _envLabel   = _PREDEFINED_FUNCS
               , _envLevels  = [Level Outermost (newFrame (Label 0) [])]
               , _envLevel   = Level Outermost (newFrame (Label 0) [])
+              , _envBreak   = []
               }
 
 --------------------------------------------------------------------------------
@@ -179,4 +181,16 @@ getLevel :: STEnvT Level
 getLevel = do
   Env{..} <- S.get
   return $ _envLevel
+
+pushBreak :: Label -> STEnvT ()
+pushBreak label = do
+  env@Env{..} <- S.get
+  S.put $ env { _envBreak = label:_envBreak }
+
+popBreak :: STEnvT ()
+popBreak = do
+  env@Env{..} <- S.get
+  S.put $ env { _envBreak = tail _envBreak }
+
+
 
