@@ -130,37 +130,52 @@ transExpr expr@(BExpr op l r)
         return $ TExpr tExp Int
        _          -> genError expr "int required"
   | op `elem` [Gt, Lt, GTE, LTE] = do
-     TExpr _ lType <- transExpr l
-     TExpr _ rType <- transExpr r
+     TExpr lTrans lType <- transExpr l
+     TExpr rTrans rType <- transExpr r
      case (lType, rType) of
-       (Int, Int)       -> return $ TExpr NoExp Int
-       (String, String) -> return $ TExpr NoExp Int
+       (Int, Int)       -> do
+         tExp <- tIntComp op lTrans rTrans
+         return $ TExpr tExp Int
+       (String, String) -> do
+         tExp <- tStringComp op lTrans rTrans
+         return $ TExpr tExp Int
        _                -> genError expr "ints or strings required"
   | op `elem` [Equal, NEqual] = do
-     TExpr _ lType <- transExpr l
-     TExpr _ rType <- transExpr r
+     TExpr lTrans lType <- transExpr l
+     TExpr rTrans rType <- transExpr r
      if lType |> rType || rType |> lType
-     then return $ TExpr NoExp Int
+     then case (lType, rType) of
+              (Int, Int) -> do
+                     tExp <- tIntComp op lTrans rTrans
+                     return $ TExpr tExp Int
+              (String, String) -> do
+                     tExp <- tStringEqNEq op lTrans rTrans
+                     return $ TExpr tExp Int
+              _ ->return $ TExpr NoExp Int
      else genError expr $ "ints, strings, array, or recs required"
                                          ++ " left type: " ++ show lType ++ " right type: "
                                          ++ show rType
 
 transExpr expr@(If cond body) = do
-    TExpr _ condT <- transExpr cond
-    TExpr _ bodyT <- transExpr body
-    case condT of
-      Int -> case bodyT of
-                   Unit -> return $ TExpr NoExp Unit
+    TExpr condTrans condTy <- transExpr cond
+    TExpr thenTrans thenTy <- transExpr body
+    case condTy of
+      Int -> case thenTy of
+                   Unit -> do
+                     tExp <- tIF condTrans thenTrans
+                     return $ TExpr tExp Unit
                    _    -> genError expr "body of if expression must return no value"
       _   -> genError expr "cond of if expression must have type int"
 
 transExpr expr@(IfE cond body1 body2) = do
-    TExpr _ condT  <- transExpr cond
-    TExpr _ body1T <- transExpr body1
-    TExpr _ body2T <- transExpr body2
-    case condT of
-      Int -> if body1T == body2T
-             then return $ TExpr NoExp body1T
+    TExpr condTrans condTy  <- transExpr cond
+    TExpr thenTrans thenTy <- transExpr body1
+    TExpr elseTrans elseTy <- transExpr body2
+    case condTy of
+      Int -> if thenTy == elseTy
+             then do
+               tExp <- tIFE condTrans thenTrans elseTrans
+               return $ TExpr tExp thenTy
              else genError expr "both expressions in IFE must have the same type"
       _        -> genError expr "cond of if expression must have type int"
 
