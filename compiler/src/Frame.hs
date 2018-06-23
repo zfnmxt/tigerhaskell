@@ -19,7 +19,7 @@ data Frame = Frame { _frameLabel      :: Label
                    , _framePointer    :: Temp
                    , _frameStatic     :: FAccess
                    , _frameWordSize   :: Int
-                   } deriving (Eq, Show)
+                   } deriving (Show, Eq)
 
 lVarOffset :: Int -> Int
 lVarOffset locals = locals * (- _WORDSIZE)
@@ -52,5 +52,7 @@ allocReg frame@Frame{..} temp = (frame', access)
                        , _frameLocalsLen = _frameLocalsLen + 1
                        }
 
-
+-- Probably wrong, placeholder for now
+externCall :: String -> [TreeExp] -> TreeExp
+externCall f args = Call (Name (NamedLabel f)) args
 
