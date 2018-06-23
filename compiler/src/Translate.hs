@@ -355,4 +355,46 @@ tWhileCond condTrans = do
                           , StmLabel doneLabel
                           ]
 
+tAssign :: TransExp -> TransExp -> STEnvT TransExp
+tAssign vTrans eTrans = do
+  v <- unEx vTrans
+  e <- unEx eTrans
+  return $ Nx $ Move v e
+
+tFor :: TransExp -> TransExp -> TransExp -> STEnvT (TransExp -> STEnvT TransExp)
+tFor vTrans minTrans maxTrans = do
+  v    <- unEx vTrans
+  min  <- unEx minTrans
+  vMin <- tAssign vTrans minTrans >>= unNx
+  max  <- unEx maxTrans
+  done <- mkLabel
+  test <- mkLabel
+  loop <- mkLabel
+  lt   <- mkLabel
+  pushBreak done
+  return $ \bodyTrans -> do
+    bodyStm <- unNx bodyTrans
+    return $ Nx $ seqMany [ vMin
+                          , StmLabel test
+                          , CJump LTE v max loop done
+                          , StmLabel loop
+                          , bodyStm
+                          , CJump Lt v max lt done
+                          , StmLabel lt
+                          , Move v (BinOp Plus v (Const 1))
+                          , Jump (Name test) [test]
+                          , StmLabel done
+                          ]
+
+tVarDef :: VAccess -> Level -> TransExp -> STEnvT TransExp
+tVarDef vAccess level eTrans = do
+  v <- simpleVar vAccess level >>= unEx
+  e <- unEx eTrans
+  return $ Nx $ Move v e
+
+
+
+
+
+
 

@@ -66,10 +66,12 @@ transExpr (VExpr var) =
       return $ TExpr tExp ty
 
 transExpr expr@(Assign v exp) = do
-  TExpr _ vTy <- transExpr (VExpr v)
-  TExpr _ eTy <- transExpr exp
+  TExpr vTrans vTy <- transExpr (VExpr v)
+  TExpr eTrans eTy <- transExpr exp
   if eTy |> vTy
-  then return $ TExpr NoExp Unit
+  then do
+    tExp <- tAssign vTrans eTrans
+    return $ TExpr tExp Unit
   else genError expr "type of expr doesn't match type of var"
 
 transExpr expr@(ExprSeq exprs) = do
@@ -201,13 +203,13 @@ transExpr expr@(While cond body) = do
       _   -> genError expr "cond of while expression must have type int"
 
 transExpr expr@(For (Assign (SimpleVar x) min) max body) = do
-  TExpr _ minT <- transExpr min
-  TExpr _ maxT <- transExpr max
+  TExpr minTrans minTy <- transExpr min
+  TExpr maxTrans maxTy <- transExpr max
   oldEnv <- S.get
   transDec (VarDec (VarDef x Nothing min))
-  TExpr _ bodyT <- transExprB body
-  case (minT, maxT) of
-    (Int, Int) -> case bodyT of
+  TExpr _ bodyTy <- transExprB body
+  case (minTy, maxTy) of
+    (Int, Int) -> case bodyTy of
                      Unit -> return $ TExpr NoExp Unit
                      _    -> genError expr "body of for-exprresion must return no value"
     _          -> genError expr "bounds of for-expression must have type int"
@@ -269,7 +271,7 @@ typeCheckVar var = do
 duplicates :: Ord a => [a] -> Bool
 duplicates xs = length xs /= length (S.fromList xs)
 
-transDec :: Dec -> STEnvT ()
+transDec :: Dec -> STEnvT (Maybe TransExp)
 transDec d = transDecHeader d >> transDecBody d
 
 transDecHeader :: Dec -> STEnvT ()
@@ -299,27 +301,32 @@ transDecHeader (FunDec fs) =
           insertFun escs _funDefId argTys resTy
           return ()
 
-transDecBody :: Dec -> STEnvT ()
-transDecBody (VarDec v@VarDef{..}) =
+transDecBody :: Dec -> STEnvT (Maybe TransExp)
+transDecBody (VarDec v@VarDef{..}) = do
+  TExpr varTrans varTy <- transExpr _varDefExpr
   case _varDefType of
     Nothing -> do
-      TExpr _ t <- transExpr _varDefExpr
-      if t == Nil
+      if varTy == Nil
       then genError v "expressions of type nil must be constrained by a record type"
-      else insertVar True _varDefId t
+      else insertAndInit True _varDefId varTrans varTy
+
     Just typeId  -> do
-      TExpr _ t <- transExpr _varDefExpr
-      t'      <- lookupTy typeId
-      case t of
-        Nil -> case t' of
-                 Record _ _ -> insertVar True _varDefId t'
+      varTy'  <- lookupTy typeId
+      case varTy of
+        Nil -> case varTy' of
+                 Record _ _ -> insertAndInit True _varDefId varTrans varTy'
                  _          -> genError v
                                "expressions of type nil must be constrained to records"
-        _   -> if t == t'
-               then insertVar True _varDefId t'
+        _   -> if varTy == varTy'
+               then insertAndInit True _varDefId varTrans varTy'
                else genError v "var type does not match expression type"
+  where insertAndInit esc varDefId varTrans varTy = do
+            vAccess <- insertVar esc varDefId varTy
+            level   <- getLevel
+            Just <$> tVarDef vAccess level varTrans
 
-transDecBody (TypeDec tys) = mapM_ addTy tys
+
+transDecBody (TypeDec tys) = mapM_ addTy tys >> return Nothing
     where addTy Type{..} =
             case _typeBody of
               RecordType typeFields -> do
@@ -327,7 +334,7 @@ transDecBody (TypeDec tys) = mapM_ addTy tys
                 insertTy _typeId $ Record _typeId (Just typeFieldTys)
               _                 -> return ()
 
-transDecBody (FunDec fs) = mapM addF fs >> return ()
+transDecBody (FunDec fs) = mapM addF fs >> return Nothing
   where addF f@FunDef{..} = do
             funEntry@FunEntry{..} <- lookupFun _funDefId
             oldEnv                <- S.get
