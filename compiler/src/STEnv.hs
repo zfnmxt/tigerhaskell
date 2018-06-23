@@ -113,14 +113,15 @@ initEnv = Env { _envV       = baseVEnv
 -- Env functions
 --------------------------------------------------------------------------------
 
-insertVar :: Bool -> Id -> Ty -> STEnvT ()
+insertVar :: Bool -> Id -> Ty -> STEnvT VAccess
 insertVar esc id ty = do
   env@Env{..} <- S.get
   temp        <- mkTemp
-  let (level', access) = allocLocal _envLevel temp esc
+  let (level', access)    = allocLocal _envLevel temp esc
   S.put $ env { _envV     = M.insert id (VarEntry ty access) _envV
               , _envLevel = level'
               }
+  return access
 
 insertFun :: [Bool] -> Id -> [Ty] -> Ty -> STEnvT ()
 insertFun escs id argTys resTy = do
