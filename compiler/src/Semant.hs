@@ -347,11 +347,11 @@ transDecBody (FunDec fs) = mapM addF fs >> return Nothing
             let argTyPairs = zipWith (\Field{..} ty -> (_fieldId, ty)) _funDefArgs _funEntryArgTys
             mapM (\(id, ty) -> insertVar True id ty) argTyPairs
             -- Switch level to function's level
-            setLevel _funEntryLevel
-            TExpr _ tBody     <- transExpr _funDefExpr
+            -- setLevel _funEntryLevel
+            TExpr bodyTrans bodyTy     <- transExpr _funDefExpr
             -- Restore level to parent
-            resParent funEntry
-            if tBody == _funEntryRetTy
+            -- resParent funEntry
+            if bodyTy == _funEntryRetTy
             then S.put oldEnv
             else genError f "res type doesn't match the type of the body"
 

@@ -17,6 +17,10 @@ _STRINGGT    = "stringGT"
 _ALLOC       = "alloc"
 _INITARRAY   = "initArray"
 
+data Frag = Proc    {_procBody :: TreeStm, _procFrame :: Frame}
+          | FString {_fStringLabel :: Label, _fStringString :: String}
+          deriving (Show, Eq)
+
 data TransExp = Ex TreeExp
               | Nx TreeStm
               | Cx (Label -> Label -> TreeStm)
@@ -72,27 +76,6 @@ unCx (Nx _)      = error "oops"
 unCx (Cx genStm) = return genStm
 
 
--- Get FP of currnet level
-levelFP :: Level -> Temp
-levelFP Level{..} = _framePointer _levelFrame
-
--- Get the static link of the current level
-levelSL :: Level -> TreeExp
-levelSL level = Mem (BinOp Plus (Const sLOffset) (IReg fP))
-  where cFrame           = _levelFrame level
-        InFrame sLOffset = _frameStatic cFrame
-        fP               = _framePointer cFrame
-
--- Get the static link of the level's parent
-pLevelSL :: Level -> TreeExp
-pLevelSL level = Mem (BinOp Plus (Const pSLOffset) (levelSL level))
-  where pFrame            = _levelFrame (_levelParent level)
-        InFrame pSLOffset = _frameStatic pFrame
-
-levelOffset :: Int -> Level -> TreeExp
-levelOffset offset level = Mem (BinOp Plus (Const offset) (IReg fP))
-  where cFrame           = _levelFrame level
-        fP               = _framePointer cFrame
 
 levelLabel :: Level -> Label
 levelLabel Level{..} = _frameLabel _levelFrame
@@ -105,7 +88,7 @@ varIndex :: VAccess -> Level -> TreeExp
 varIndex vAccess@VAccess{..} cLevel
   | intLevel _accessLevel > intLevel cLevel = error "oops"
   | otherwise                               =
-    buildIndex cLevel (IReg (levelFP cLevel))
+    buildIndex cLevel (IReg _R_FP)
     where InFrame vOffset = _accessLoc
           buildIndex cLevel tree
            | levelLabel cLevel == levelLabel _accessLevel =
@@ -390,3 +373,12 @@ tVarDef :: VAccess -> Level -> TransExp -> STEnvT TransExp
 tVarDef vAccess level eTrans = do
   vTrans <- simpleVar vAccess level
   tAssign vTrans eTrans
+
+tFunDef :: TransExp -> Level -> STEnvT TransExp
+tFunDef bodyTrans Level{..} = do
+  ret <- unEx bodyTrans
+  let moveRet = Move (IReg _R_RET) ret
+  return $ Nx $ procEntryExit1 _levelFrame moveRet
+
+
+  
