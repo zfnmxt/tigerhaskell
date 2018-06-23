@@ -14,6 +14,8 @@ import           Types
 _STRINGEQUAL = "stringEqual"
 _STRINGLT    = "stringLT"
 _STRINGGT    = "stringGT"
+_ALLOC       = "alloc"
+_INITARRAY   = "initArray"
 
 data TransExp = Ex TreeExp
               | Nx TreeStm
@@ -55,9 +57,12 @@ unEx (Cx genStm) = do
 unNx :: TransExp -> STEnvT TreeStm
 unNx (Ex e) = return $ StmExp e
 unNx (Nx s) = return s
-unNX (Cx genStm) = do
+unNx (Cx genStm) = do
   e <- unEx (Cx genStm)
   unNx (Ex e)
+unNx NoExp  = do
+  label <- mkLabel
+  return $ StmLabel label
 
 unCx :: TransExp -> STEnvT (Label -> Label -> TreeStm)
 uxCx (Const 0)   = return $ \_ f -> Jump (Name f) [f]
@@ -315,5 +320,25 @@ tIF condTrans thenTrans  = do
                         , thenStm
                         , StmLabel fLabel
                         ]
+
+tRecord :: [TransExp] -> STEnvT TransExp
+tRecord tFields = do
+  let n       = length tFields
+      recordP = externCall _ALLOC [Const n]
+  exps        <- mapM unEx tFields
+  let moves   = zipWith (f recordP) [0..(n-1)] exps
+  return $ Ex $ seqMany moves >>$ recordP
+    where f recordP i e =
+            let loc = BinOp Plus recordP (BinOp Mul (Const i) (Const _WORDSIZE))
+            in Move loc e
+
+tArray :: TransExp -> TransExp -> STEnvT TransExp
+tArray nTrans vTrans = do
+  n <- unEx nTrans
+  v <- unEx vTrans
+  return $ Ex $  externCall _INITARRAY [n, v]
+
+
+
 
 

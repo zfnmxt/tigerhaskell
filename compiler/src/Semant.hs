@@ -77,12 +77,16 @@ transExpr expr@(ExprSeq exprs) = do
   return $ last tys
 
 transExpr expr@(RecordExpr tId fields) = do
-  recT       <- lookupTy tId
-  case recT of
+  recTy      <- lookupTy tId
+  case recTy of
    Record _ (Just fieldTs) -> do
      checks <- nameTypeCheck
      if and checks
-     then return $ TExpr NoExp recT
+     then do
+        transFields <- mapM transExpr $ map _recordFieldExpr fields
+        let tFields = map _tExpr transFields
+        tExp    <- tRecord tFields
+        return $ TExpr tExp recTy
      else genError expr "field name or type don't match with declared record type"
        where nameTypeCheck =
                let f (RecordField{..}, (fname, ftype)) = do
@@ -98,16 +102,18 @@ transExpr expr@(RecordExpr tId fields) = do
 
 transExpr expr@(ArrayExpr tId n v) = do
   arrayT  <- lookupTy tId
-  TExpr _ nT <- transExpr n
-  TExpr _ vT <- transExpr v
+  TExpr nTrans nTy <- transExpr n
+  TExpr vTrans vTy <- transExpr v
   case arrayT of
-    Array aId t -> if nT == Int
+    Array aId t -> if nTy == Int
                    then do
                      t' <- case t of
                                Record recId Nothing -> lookupTy recId
                                _                    -> return t
-                     if vT |> t'
-                      then return $ TExpr NoExp (Array aId t')
+                     if vTy |> t'
+                      then do
+                       tExp <- tArray nTrans vTrans
+                       return $ TExpr tExp (Array aId t')
                       else genError expr $ "v should have type " ++ show t
                else genError expr "n must have type int"
     _       -> genError expr "type of array expr isn't an array type"
