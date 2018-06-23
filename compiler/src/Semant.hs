@@ -205,13 +205,19 @@ transExpr expr@(While cond body) = do
 transExpr expr@(For (Assign (SimpleVar x) min) max body) = do
   TExpr minTrans minTy <- transExpr min
   TExpr maxTrans maxTy <- transExpr max
-  oldEnv <- S.get
-  transDec (VarDec (VarDef x Nothing min))
-  TExpr _ bodyTy <- transExprB body
   case (minTy, maxTy) of
-    (Int, Int) -> case bodyTy of
-                     Unit -> return $ TExpr NoExp Unit
-                     _    -> genError expr "body of for-exprresion must return no value"
+    (Int, Int) -> do
+      oldEnv                 <- S.get
+      Just vInitTrans        <- transDec (VarDec (VarDef x Nothing min))
+      VarEntry _ vAccess     <- lookupVar x
+      level                  <- getLevel
+      vTrans                 <- simpleVar vAccess level
+      transForFunc           <- tFor vInitTrans vTrans minTrans maxTrans
+      TExpr bodyTrans bodyTy <- transExprB body
+      tExp                   <- transForFunc bodyTrans
+      case bodyTy of
+        Unit -> S.put oldEnv >> return (TExpr tExp Unit)
+        _    -> S.put oldEnv >> genError expr "body of for-exprresion must return no value"
     _          -> genError expr "bounds of for-expression must have type int"
 
 transExpr expr@(Let decs exprs) = do

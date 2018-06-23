@@ -355,26 +355,20 @@ tWhileCond condTrans = do
                           , StmLabel doneLabel
                           ]
 
-tAssign :: TransExp -> TransExp -> STEnvT TransExp
-tAssign vTrans eTrans = do
-  v <- unEx vTrans
-  e <- unEx eTrans
-  return $ Nx $ Move v e
-
-tFor :: TransExp -> TransExp -> TransExp -> STEnvT (TransExp -> STEnvT TransExp)
-tFor vTrans minTrans maxTrans = do
-  v    <- unEx vTrans
-  min  <- unEx minTrans
-  vMin <- tAssign vTrans minTrans >>= unNx
-  max  <- unEx maxTrans
-  done <- mkLabel
-  test <- mkLabel
-  loop <- mkLabel
-  lt   <- mkLabel
+tFor :: TransExp -> TransExp -> TransExp -> TransExp -> STEnvT (TransExp -> STEnvT TransExp)
+tFor vInitTrans vTrans minTrans maxTrans = do
+  v     <- unEx vTrans
+  min   <- unEx minTrans
+  vInit <- unNx vInitTrans
+  max   <- unEx maxTrans
+  done  <- mkLabel
+  test  <- mkLabel
+  loop  <- mkLabel
+  lt    <- mkLabel
   pushBreak done
   return $ \bodyTrans -> do
     bodyStm <- unNx bodyTrans
-    return $ Nx $ seqMany [ vMin
+    return $ Nx $ seqMany [ vInit
                           , StmLabel test
                           , CJump LTE v max loop done
                           , StmLabel loop
@@ -386,15 +380,13 @@ tFor vTrans minTrans maxTrans = do
                           , StmLabel done
                           ]
 
-tVarDef :: VAccess -> Level -> TransExp -> STEnvT TransExp
-tVarDef vAccess level eTrans = do
-  v <- simpleVar vAccess level >>= unEx
+tAssign :: TransExp -> TransExp -> STEnvT TransExp
+tAssign vTrans eTrans = do
+  v <- unEx vTrans
   e <- unEx eTrans
   return $ Nx $ Move v e
 
-
-
-
-
-
-
+tVarDef :: VAccess -> Level -> TransExp -> STEnvT TransExp
+tVarDef vAccess level eTrans = do
+  vTrans <- simpleVar vAccess level
+  tAssign vTrans eTrans

@@ -53,7 +53,7 @@ resParent :: VEnvEntry -> STEnvT ()
 resParent FunEntry{..} = do
   case _funEntryLevel of
     Outermost   -> error "oops"
-    Level{..} -> setLevel _levelParent
+    Level{..}   -> setLevel _levelParent
 
 intLevel :: Level -> Int
 intLevel Outermost = 0
