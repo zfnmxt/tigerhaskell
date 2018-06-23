@@ -38,10 +38,11 @@ module DumbParser (
   , ctoken
 ) where
 
-import Control.Applicative ( Alternative, (<|>), empty, many, some)
-import Data.Char (isSpace, isNumber, isDigit, isAlpha, isAlphaNum)
-import Data.List (isPrefixOf)
-import Control.Monad (void)
+import           Control.Applicative (Alternative, empty, many, some, (<|>))
+import           Control.Monad       (void)
+import           Data.Char           (isAlpha, isAlphaNum, isDigit, isNumber,
+                                      isSpace)
+import           Data.List           (isPrefixOf)
 
 data Env = Env { linenum :: Int, colnum :: Int} deriving (Show, Eq)
 
