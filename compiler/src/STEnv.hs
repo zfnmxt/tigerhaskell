@@ -172,6 +172,9 @@ mkLabel = do
    S.put  $ env { _envLabel = _envLabel + 1}
    return $ Label _envLabel
 
+mkNamedLabel :: String -> STEnvT Label
+mkNamedLabel s = return $ NamedLabel s
+
 getLevel :: STEnvT Level
 getLevel = do
   Env{..} <- S.get
