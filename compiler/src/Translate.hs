@@ -11,6 +11,10 @@ import           Temp
 import           Tree
 import           Types
 
+_STRINGEQUAL = "stringEqual"
+_STRINGLT    = "stringLT"
+_STRINGGT    = "stringGT"
+
 data TransExp = Ex TreeExp
               | Nx TreeStm
               | Cx (Label -> Label -> TreeStm)
@@ -167,6 +171,69 @@ tArith astOP lTrans rTrans = do
             AST.Div  -> Div
   return $ Ex $ BinOp op l r
 
+tIntComp :: AST.BOp -> TransExp -> TransExp -> STEnvT TransExp
+tIntComp astOP lTrans rTrans = do
+  l <- unEx lTrans
+  r <- unEx rTrans
+  let op = case astOP of
+            AST.Gt     -> Gt
+            AST.Lt     -> Lt
+            AST.GTE    -> GTE
+            AST.LTE    -> LTE
+            AST.Equal  -> Equal
+            AST.NEqual -> NEqual
+  return $ Cx $ \tLabel fLabel ->
+                  CJump op l r tLabel fLabel
+
+tStringEq :: TransExp -> TransExp -> STEnvT TransExp
+tStringEq  lTrans rTrans = do
+  l <- unEx lTrans
+  r <- unEx rTrans
+  let strEqualTree = externCall _STRINGEQUAL [l, r]
+  return $ Ex $ strEqualTree
+
+tStringNEq :: TransExp -> TransExp -> STEnvT TransExp
+tStringNEq lTrans rTrans = do
+  Ex strEqTree <- tStringEq lTrans rTrans
+  return $ Cx $ \tLabel fLabel ->
+                      CJump Equal strEqTree (Const 0) tLabel fLabel
+
+tStringEqNEq :: AST.BOp -> TransExp -> TransExp -> STEnvT TransExp
+tStringEqNEq (AST.Equal)  = tStringEq
+tStringEqNEq (AST.NEqual) = tStringNEq
+
+tStringLt :: TransExp -> TransExp -> STEnvT TransExp
+tStringLt lTrans rTrans = do
+  l <- unEx lTrans
+  r <- unEx rTrans
+  let strLtTree = externCall _STRINGLT [l, r]
+  return $ Ex $ strLtTree
+
+tStringLTE :: TransExp -> TransExp -> STEnvT TransExp
+tStringLTE lTrans rTrans = do
+  strEqTree <- tStringEq lTrans rTrans
+  strLtTree <- tStringLt lTrans rTrans
+  tIFE strLtTree (Ex (Const 1)) strEqTree
+
+tStringGt :: TransExp -> TransExp -> STEnvT TransExp
+tStringGt lTrans rTrans = do
+  l <- unEx lTrans
+  r <- unEx rTrans
+  let strGtTree = externCall _STRINGGT [l, r]
+  return $ Ex $ strGtTree
+
+tStringGTE :: TransExp -> TransExp -> STEnvT TransExp
+tStringGTE lTrans rTrans = do
+  strEqTree <- tStringEq lTrans rTrans
+  strGtTree <- tStringGt lTrans rTrans
+  tIFE strGtTree (Ex (Const 1)) strEqTree
+
+tStringComp :: AST.BOp -> TransExp -> TransExp -> STEnvT TransExp
+tStringComp AST.Gt   = tStringGt
+tStringComp AST.Lt   = tStringLt
+tStringComp AST.GTE  = tStringGTE
+tStringComp AST.LTE  = tStringLTE
+
 tNeg :: TransExp -> STEnvT TransExp
 tNeg eTrans = do
   e <- unEx eTrans
@@ -236,8 +303,17 @@ tIFE condTrans thenTrans elseTrans = do
              , StmLabel tLabel
             ])
     >>$ IReg r
-   
 
+tIF :: TransExp -> TransExp -> STEnvT TransExp
+tIF condTrans thenTrans  = do
+  condGenStm <- unCx condTrans
+  thenStm    <- unNx thenTrans
+  tLabel <- mkLabel
+  fLabel <- mkLabel
+  return $ Nx $ seqMany [ condGenStm tLabel fLabel
+                        , StmLabel tLabel
+                        , thenStm
+                        , StmLabel fLabel
+                        ]
 
---tIFE condTrans thenTrans elseTrans = do
 
