@@ -31,15 +31,17 @@ data TExpr = TExpr { _tExpr   :: TransExp
 -- Expression transformation and type checking
 --------------------------------------------------------------------------------
 transExprB :: Expr -> STEnvT TExpr
-transExprB Break = return $ TExpr NoExp Unit
+transExprB Break = tBreak >>= (\tExp -> return $ TExpr tExp Unit)
 transExprB expr  = transExpr expr
 
 transExpr :: Expr -> STEnvT TExpr
-transExpr (NilExpr)   = return $ TExpr NoExp Nil
+transExpr (NilExpr)   = tNil >>= (\tExp -> return $ TExpr tExp Nil)
 transExpr (IExpr x)   = do
   tExp <- iExpr x
   return $ TExpr tExp Int
-transExpr (SExpr _)   = return $ TExpr NoExp String
+transExpr (SExpr s)   = do
+  tExp <- tString s
+  return $ TExpr tExp String
 transExpr Break       = genError Break "Breaks must be confined to for and while loops"
 transExpr (VExpr var) =
   case var of
@@ -159,7 +161,18 @@ transExpr expr@(BExpr op l r)
               (String, String) -> do
                      tExp <- tStringEqNEq op lTrans rTrans
                      return $ TExpr tExp Int
-              _ ->return $ TExpr NoExp Int
+              (Record _ _, Record _ _) -> do
+                     tExp <- tArrayRecEqNeq op lTrans rTrans
+                     return $ TExpr tExp Int
+              (Nil, Record _ _) -> do
+                     tExp <- tArrayRecEqNeq op lTrans rTrans
+                     return $ TExpr tExp Int
+              (Record _ _, Nil) -> do
+                     tExp <- tArrayRecEqNeq op lTrans rTrans
+                     return $ TExpr tExp Int
+              (Array _ _, Array _ _)   -> do
+                     tExp <- tArrayRecEqNeq op lTrans rTrans
+                     return $ TExpr tExp Int
      else genError expr $ "ints, strings, array, or recs required"
                                          ++ " left type: " ++ show lType ++ " right type: "
                                          ++ show rType
@@ -180,7 +193,7 @@ transExpr expr@(IfE cond body1 body2) = do
     TExpr thenTrans thenTy <- transExpr body1
     TExpr elseTrans elseTy <- transExpr body2
     case condTy of
-      Int -> if thenTy == elseTy
+      Int -> if (thenTy |> elseTy) || (elseTy |> thenTy)
              then do
                tExp <- tIFE condTrans thenTrans elseTrans
                return $ TExpr tExp thenTy
@@ -222,10 +235,15 @@ transExpr expr@(For (Assign (SimpleVar x) min) max body) = do
 
 transExpr expr@(Let decs exprs) = do
   oldEnv <- S.get
-  mapM transDec decs
-  exprTys <- mapM transExpr exprs
+  tDecs  <- transDecs decs
+  tExprs <- mapM transExpr exprs
+  let letTy = case tExprs of
+               []    -> Unit
+               exprs -> _tExprTy (last exprs)
+  let transExps = map _tExpr tExprs
   S.put oldEnv
-  return $ last exprTys
+  tExp   <- tLet tDecs transExps
+  return $ TExpr tExp letTy
 
 transExpr expr@(FCall f args) = do
   oldEnv <- S.get
@@ -235,12 +253,17 @@ transExpr expr@(FCall f args) = do
   let transArgs    = _tExpr   <$> transArgsAndTys
   cLevel           <- getLevel
   tExp             <- fCall fun cLevel transArgs
-  if passedArgTys == _funEntryArgTys
+  if (and $ zipWith (<|>) passedArgTys _funEntryArgTys)
+     && (length passedArgTys == length _funEntryArgTys)
   then S.put oldEnv >> return (TExpr tExp _funEntryRetTy)
-  else S.put oldEnv >> genError expr "args don't match argtype of function"
+  else S.put oldEnv >> genError expr ("args don't match argtype of function"
+                                     ++ "\nfunEntry:" ++ show _funEntryArgTys
+                                     ++ "\npassed:" ++ show passedArgTys)
 
-transExpr UnitExpr = return $ TExpr NoExp Unit
+transExpr UnitExpr = tUnit >>= \tExp -> return $ TExpr tExp Unit
 transExpr expr = genError expr "pattern match failed"
+
+
 
 --------------------------------------------------------------------------------
 -- Var typechecking
@@ -276,6 +299,14 @@ typeCheckVar var = do
 --------------------------------------------------------------------------------
 duplicates :: Ord a => [a] -> Bool
 duplicates xs = length xs /= length (S.fromList xs)
+
+transDecs :: [Dec] -> STEnvT [TransExp]
+transDecs decs = concat <$> mapM f decs
+  where f dec = do
+          maybeTrans <- transDec dec
+          case maybeTrans of
+            Nothing   -> return []
+            Just tExp -> return [tExp]
 
 transDec :: Dec -> STEnvT (Maybe TransExp)
 transDec d = transDecHeader d >> transDecBody d
