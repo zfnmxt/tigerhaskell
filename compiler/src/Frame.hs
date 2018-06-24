@@ -16,10 +16,12 @@ data FAccess = InFrame Int | InReg Temp
 data Frame = Frame { _frameLabel      :: Label
                    , _frameFormals    :: [FAccess]
                    , _frameStatic     :: FAccess
-                   , _frameWordSize   :: Int
                    , _frameLocalNum   :: Int
                    } deriving (Show, Eq)
 
+data Frag = Proc    {_procBody :: TreeStm, _procFrame :: Frame}
+          | FString {_fStringLabel :: Label, _fStringS :: String}
+          deriving (Show, Eq)
 
 lVarOffset :: Int -> Int
 lVarOffset locals = locals * (- _WORDSIZE)
@@ -28,11 +30,10 @@ newFrame :: Label -> [Bool] -> Frame
 newFrame name escs = frame
   where f next (frame, as) = (\(frame', a) -> (frame, a:as)) $ allocMem frame
         initFrame = Frame { _frameLabel    = name
-                         , _frameFormals   = formals
-                         , _frameStatic    = InFrame 0
-                         , _frameWordSize  = _WORDSIZE
-                         , _frameLocalNum  = 0
-                         }
+                          , _frameFormals   = formals
+                          , _frameStatic    = InFrame 0
+                          , _frameLocalNum  = 0
+                          }
         (frame, formals) = foldr f (initFrame, []) escs -- only works for escaping args
 
 allocMem :: Frame -> (Frame, FAccess)
