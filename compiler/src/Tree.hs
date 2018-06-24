@@ -27,12 +27,12 @@ data TreeStm = Move TreeExp TreeExp
 (>>$) :: TreeStm -> TreeExp -> TreeExp
 (>>$) = ESeq
 
-infixr 5 >>$
+infixl 5 >>$
 
 (>>>) :: TreeStm -> TreeStm -> TreeStm
 (>>>) = Seq
 
-infixr 5 >>>
+infixl 5 >>>
 
 data BinOp = Plus | Sub | Mul | Div | And | Or
              | LShift | RShift | ARShift | XOR
