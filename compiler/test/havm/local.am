@@ -1,0 +1,143 @@
+# Copyright (C) 2003  Robert Anisko
+# Copyright (C) 2003-2005, 2007, 2009, 2012  EPITA Research and Development
+# Laboratory (LRDE)
+#
+# This file is part of HAVM.
+#
+# HAVM is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+#
+# HAVM is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with HAVM.  If not, see <http://www.gnu.org/licenses/>.
+
+SUFFIXES = .hs .y .hc
+
+havm_sources =					\
+  %D%/Annotation.hs				\
+  %D%/Code.hs					\
+  %D%/Cpu.hs					\
+  %D%/Eval.hs					\
+  %D%/High.hs					\
+  %D%/Ir.hs					\
+  %D%/Level.hs					\
+  %D%/Location.hs				\
+  %D%/Low.hs					\
+  %D%/Main.hs					\
+  %D%/Memory.hs					\
+  %D%/Opt.hs					\
+  %D%/Parse.y					\
+  %D%/Plain.hs					\
+  %D%/Position.hs				\
+  %D%/Preload.hs				\
+  %D%/Print.hs					\
+  %D%/Profile.hs				\
+  %D%/Report.hs					\
+  %D%/Result.hs					\
+  %D%/Runtime.hs				\
+  %D%/RuntimeChar.hs				\
+  %D%/RuntimeCommon.hs				\
+  %D%/RuntimeInput.hs				\
+  %D%/RuntimeInt.hs				\
+  %D%/RuntimePrint.hs				\
+  %D%/RuntimeString.hs				\
+  %D%/RuntimeSystem.hs				\
+  %D%/Scan.hs					\
+  %D%/StdBinop.hs				\
+  %D%/StdRelop.hs				\
+  %D%/Token.hs					\
+  %D%/Trace.hs					\
+  %D%/VMMonad.hs
+
+bin_SCRIPTS = %D%/havm
+
+dist_noinst_DATA = $(havm_sources) %D%/Parse.hs
+
+GHCCOMPILE = $(GHC) $(AM_GHCFLAGS) $(GHCFLAGS)
+
+# -odir
+#
+#     Non-interface output files are normally put in the same directory
+#     as their corresponding input file came from. You may specify that
+#     they be put in another directory using the -odir <dir> (the "Oh,
+#     dear"  option). For example:
+#
+#     % ghc -c parse/Foo.hs parse/Bar.hs gurgle/Bumble.hs -odir `arch`
+#
+#     The output files, Foo.o, Bar.o, and Bumble.o would be put into a
+#     subdirectory named after the architecture of the executing machine
+#     (sun4, mips, etc). The directory must already exist; it won't be
+#     created.
+#
+#     Note that the -odir option does not affect where the interface
+#     files are put. In the above example, they would still be put in
+#     parse/Foo.hi, parse/Bar.hi, and gurgle/Bumble.hi.
+#
+# -hidir directory
+#
+#     Redirects all generated interface files into directory, instead of
+#     the default which is to place the interface file in the same
+#     directory as the source file.
+AM_GHCFLAGS = -i%D%:$(srcdir)/%D% -odir%D% -hidir%D% --make -rtsopts $(PACKAGE_GHCFLAGS)
+havm_dependencies = $(havm_sources) %D%/Config.hs %D%/Parse.hs
+%D%/havm: $(havm_dependencies)
+	$(GHCCOMPILE) $(srcdir)/%D%/Main.hs -o %D%/havm
+
+# Static linking HAVM does not work on Mac OS X.  See
+# http://developer.apple.com/mac/library/qa/qa2001/qa1118.html for
+# more information:
+#
+#   Technical Q&A QA1118
+#   Static linking of user binaries on Mac OS X
+#
+#   Q: I'm trying to link my binary statically, but it's failing to
+#   link because it can't find 'crt0.o.'  Why?
+#
+#   A: Static linking of user binaries is not supported on Mac OS X.
+#   Tying user binaries to the internal implementation of Mac OS X
+#   libraries and interfaces would limit our ability to update and
+#   enhance Mac OS X.  Instead, dynamic linking is supported (linking
+#   against crt1.o automatically instead of looking for crt0.o, for
+#   example).
+#
+#   We strongly recommend that you consider the limitations of
+#   statically linking very carefully, and consider your customer and
+#   their needs, plus the long-term support you will need to provide.
+#   Apple provides support and attempts to insure complete
+#   compatibility through the published APIs, but cannot insure that
+#   compatibility in a statically linked project.  Any change to Mac
+#   OS X, in a system update, security update, or major revision, may
+#   break statically linked code.
+#
+#   If your project absolutely must link statically and need crt0.o,
+#   you can get the Csu module from Darwin and try building crt0.o
+#   statically.  Please bear in mind that you must then clearly
+#   specify to your customers the compatibility risks involved in
+#   installing a product that relies on statically linked code.
+#
+static: $(havm_dependencies)
+	$(GHCCOMPILE) -optl-static -optl-pthread $(srcdir)/%D%/Main.hs -o %D%/havm
+
+profile: $(havm_dependencies)
+	$(GHCCOMPILE) -prof -auto-all $(srcdir)/%D%/Main.hs -o %D%/havm
+
+CLEANFILES = %D%/*.hi %D%/*.hc %D%/*.o %D%/havm
+MAINTAINERCLEANFILES = %D%/Parse.hs
+
+fclean: clean
+	rm -f %D%/havm %D%/Parse.hs
+
+.y.hs:
+	$(HAPPY) $< -o $@
+
+.hs.hc:
+	$(GHC) -C -package data $< -o $@
+
+.hc.c:
+	mv $< $@
