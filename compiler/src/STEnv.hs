@@ -17,15 +17,20 @@ import qualified Frame as F
 type TError  = String
 type STEnvT  = StateT Env (Either TError)
 
+_OUTERMOST = NamedLabel "outermost"
+_OUTERMOSTFRAME = newFrame _OUTERMOST []
+
 genError :: Show a => a -> String -> STEnvT b
 genError x s = lift . Left $ "Error on term: " ++ show x ++ " with error msg: " ++ s
 
 --------------------------------------------------------------------------------
 -- Level and Access
 --------------------------------------------------------------------------------
-data Level = Outermost | Level { _levelParent  :: Level
+data Level = Outermost | Level {_levelParent  :: Level
                                , _levelFrame   :: Frame
                                } deriving (Eq, Show)
+
+
 
 data VAccess = VAccess { _accessLevel   :: Level
                        , _accessLoc     :: FAccess
@@ -59,6 +64,9 @@ intLevel :: Level -> Int
 intLevel Outermost = 0
 intLevel Level{..} = intLevel _levelParent + 1
 
+levelLabel :: Level -> Label
+levelLabel Level{..} = _frameLabel _levelFrame
+levelLabel Outermost = _OUTERMOST
 --------------------------------------------------------------------------------
 -- Env Maps
 --------------------------------------------------------------------------------
@@ -80,6 +88,7 @@ data Env  = Env { _envV      :: EnvV
                 , _envLevel  :: Level
                 , _envLevels :: [Level]
                 , _envBreak  :: [Label]
+                , _envFrags  :: [Frag]
                 } deriving (Show, Eq)
 
 --------------------------------------------------------------------------------
@@ -107,6 +116,7 @@ initEnv = Env { _envV       = baseVEnv
               , _envLevels  = [Level Outermost (newFrame (Label 0) [])]
               , _envLevel   = Level Outermost (newFrame (Label 0) [])
               , _envBreak   = []
+              , _envFrags   = []
               }
 
 --------------------------------------------------------------------------------
@@ -188,10 +198,16 @@ pushBreak label = do
   env@Env{..} <- S.get
   S.put $ env { _envBreak = label:_envBreak }
 
-popBreak :: STEnvT ()
+popBreak :: STEnvT Label
 popBreak = do
   env@Env{..} <- S.get
   S.put $ env { _envBreak = tail _envBreak }
+  return $ head _envBreak
+
+insertFrag :: Frag -> STEnvT ()
+insertFrag f = do
+  env@Env{..} <- S.get
+  S.put $ env { _envFrags = f:_envFrags }
 
 
 
