@@ -16,34 +16,32 @@ _STRINGLT    = "stringLT"
 _STRINGGT    = "stringGT"
 _ALLOC       = "alloc"
 _INITARRAY   = "initArray"
+_NIL         = "nil"
 
-data Frag = Proc    {_procBody :: TreeStm, _procFrame :: Frame}
-          | FString {_fStringLabel :: Label, _fStringString :: String}
-          deriving (Show, Eq)
+
+--------------------------------------------------------------------------------
+-- TransExp
+--------------------------------------------------------------------------------
 
 data TransExp = Ex TreeExp
               | Nx TreeStm
               | Cx (Label -> Label -> TreeStm)
-              | NoExp
 
 instance Show TransExp where
   show (Ex e) = "Ex " ++ show e
   show (Nx s) = "Nx " ++ show s
   show (Cx _) = "Cx <genStm>"
-  show NoExp  = "NoExp"
 
 instance Eq TransExp where
   (Ex e1) == (Ex e2) = e1 == e2
   (Nx s1) == (Nx s2) = s1 == s2
-  NoExp == NoExp     = True
   _ == _             = False
 
 seqMany :: [TreeStm] -> TreeStm
-seqMany []     = error "oops"
+seqMany []     = StmExp (Const 0)
 seqMany (s:ss) = foldr (>>>) s ss
 
 unEx :: TransExp -> STEnvT TreeExp
-unEx NoExp       = return $ Const 0
 unEx (Ex e)      = return $ e
 unEx (Nx s)      = return $ ESeq s (Const 0)
 unEx (Cx genStm) = do
@@ -64,9 +62,6 @@ unNx (Nx s) = return s
 unNx (Cx genStm) = do
   e <- unEx (Cx genStm)
   unNx (Ex e)
-unNx NoExp  = do
-  label <- mkLabel
-  return $ StmLabel label
 
 unCx :: TransExp -> STEnvT (Label -> Label -> TreeStm)
 uxCx (Const 0)   = return $ \_ f -> Jump (Name f) [f]
@@ -76,10 +71,9 @@ unCx (Nx _)      = error "oops"
 unCx (Cx genStm) = return genStm
 
 
-
-levelLabel :: Level -> Label
-levelLabel Level{..} = _frameLabel _levelFrame
-
+--------------------------------------------------------------------------------
+-- Translation
+--------------------------------------------------------------------------------
 indexOffset :: Int -> TreeExp -> TreeExp
 indexOffset offset addr = Mem (BinOp Plus (Const offset) addr)
 
@@ -375,10 +369,45 @@ tVarDef vAccess level eTrans = do
   tAssign vTrans eTrans
 
 tFunDef :: TransExp -> Level -> STEnvT TransExp
-tFunDef bodyTrans Level{..} = do
+tFunDef bodyTrans level = do
   ret <- unEx bodyTrans
+  let frame = _levelFrame level
   let moveRet = Move (IReg _R_RET) ret
-  return $ Nx $ procEntryExit1 _levelFrame moveRet
+  let body = procEntryExit1 frame moveRet
+  insertFrag $ Proc {_procBody = body, _procFrame = frame}
+  return $ Nx $ body
 
+procEntryExit :: Level -> TransExp -> STEnvT ()
+procEntryExit level exp = undefined
 
-  
+tString :: String -> STEnvT TransExp
+tString s = do
+  label <- mkLabel
+  insertFrag $ FString {_fStringLabel = label, _fStringS = s}
+  return $ Ex $ Name label
+
+tNil :: STEnvT TransExp
+tNil = return $ Ex $ Mem (Name (NamedLabel "_NIL"))
+
+tBreak :: STEnvT TransExp
+tBreak = do
+  label <- popBreak
+  return $ Nx $ Jump (Name label) [label]
+
+tUnit :: STEnvT TransExp
+tUnit = return $ Nx $ StmExp (Const 0)
+
+tArrayRecEqNeq :: AST.BOp -> TransExp -> TransExp -> STEnvT TransExp
+tArrayRecEqNeq astBOp leftTrans rightTrans = do
+  left   <- unEx leftTrans
+  right  <- unEx rightTrans
+  let op = case astBOp of {AST.Equal -> Equal; AST.NEqual -> NEqual}
+  return $ Cx $ \t f -> CJump op left right t f
+
+tLet :: [TransExp] -> [TransExp] -> STEnvT TransExp
+tLet _ [] = return $ Nx $ StmExp (Const 0)
+tLet tDecs transExps = do
+  stms     <- mapM unNx tDecs
+  bodyStms <- mapM unNx (init transExps)
+  retExp   <- unEx (last transExps)
+  return $ Ex (seqMany stms >>> seqMany bodyStms >>$ retExp)
