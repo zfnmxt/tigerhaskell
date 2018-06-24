@@ -25,9 +25,11 @@ dependencies:
 - mtl
 - transformers
 - pretty-show
+- process
 
 library:
-  source-dirs: src
+  source-dirs: 
+  - src
 
 executables:
   compiler-exe:
@@ -43,7 +45,9 @@ executables:
 tests:
   compiler-test:
     main:                Spec.hs
-    source-dirs:         test
+    source-dirs:
+      - test
+      - test/havm
     ghc-options:
     - -threaded
     - -rtsopts
@@ -52,3 +56,6 @@ tests:
     - compiler
     - hspec
     - QuickCheck
+    - array
+    - unix
+    - silently
