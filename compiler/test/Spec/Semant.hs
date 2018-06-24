@@ -327,5 +327,5 @@ appelTests = describe "Type checker tests using appel's .tig files" $ do
   it "checks queens" $ do
     parseAndTy queens `shouldBe` Right Unit
   it "checks merge" $ do
-    parseAndTy queens `shouldBe` Right Unit
+    parseAndTy merge `shouldBe` Right Unit
 
