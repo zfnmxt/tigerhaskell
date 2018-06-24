@@ -107,6 +107,7 @@ baseVEnv = M.fromList [ ("print",     FunEntry [String] Unit Outermost (Label 0)
                       , ("concat",    FunEntry [String, String] String Outermost (Label 7)   0 )
                       , ("not",       FunEntry [Int] Int Outermost (Label 8)                 0 )
                       , ("exit",      FunEntry [Int] Unit Outermost (Label 9)                0 )
+                      , ("print_int",      FunEntry [Int] Unit Outermost (Label 10)                0 )
                       ]
 
 initEnv = Env { _envV       = baseVEnv
