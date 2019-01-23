@@ -44,6 +44,7 @@ import           Data.Char           (isAlpha, isAlphaNum, isDigit, isNumber,
                                       isSpace)
 import           Data.List           (isPrefixOf)
 
+-- foo
 data Env = Env { linenum :: Int, colnum :: Int} deriving (Show, Eq)
 
 class Error e where
