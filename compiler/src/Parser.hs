@@ -14,6 +14,7 @@ type TigerP = Parser TigerError
 initialEnv :: Env
 initialEnv = Env 0 0
 
+-- lalalalla
 tigerParse :: TigerP a -> String -> Either TigerError a
 tigerParse p s =
   case runParser p initialEnv s of
