@@ -1,5 +1,0 @@
-module Config (package_version,                           -- -*- Haskell -*-
-	       package_string)
-where
-package_version = "@PACKAGE_VERSION@"
-package_string = "@PACKAGE_STRING@"
