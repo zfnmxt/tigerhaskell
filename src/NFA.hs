@@ -61,6 +61,32 @@ matches nfa as = matches' [startState nfa] as
       let ss' = reachable nfa s a
       [matches' ss' as]
 
+empty :: ([a] -> b) -> NFAM a b
+empty f = do
+  do
+    x0 <- newNum
+    x1 <- newNum
+    let s0 =
+          NFAState
+            { stateNum = x0,
+              transition = const [],
+              epsilons = [x1],
+              construct = Nothing
+            }
+        s1 =
+          NFAState
+            { stateNum = x1,
+              transition = const [],
+              epsilons = [],
+              construct = Just f
+            }
+    return $
+      TH
+        { nfaStates = M.fromList [(x0, s0), (x1, s1)],
+          startState = x0,
+          endState = x1
+        }
+
 singleton :: Eq a => ([a] -> b) -> a -> NFAM a b
 singleton f a =
   do
@@ -97,6 +123,7 @@ fromRegex f r =
         }
   where
     fromRegex' f (Sym a) = singleton f a
+    fromRegex' f Empty = empty f
     fromRegex' f (r1 ::: r2) = do
       th_r1 <- fromRegex' (error "Not an end state") r1
       th_r2 <- fromRegex' f r2
@@ -110,3 +137,4 @@ fromRegex f r =
             startState = startState th_r1,
             endState = endState th_r2
           }
+    fromRegex' f (r1 :|| r2) = undefined
