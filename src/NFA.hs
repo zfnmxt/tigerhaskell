@@ -202,7 +202,7 @@ fromRegex f r =
             endId = s_id
           }
 
-toDFA :: forall s a b. (Show a, Eq a) => NFA s a b -> Set a -> DFA (Set Int) a b
+toDFA :: forall s a b. (Show a, Eq a, Ord s) => NFA s a b -> Set a -> DFA (Set Int) a b
 toDFA nfa sigma = evalState toDFA' 0
   where
     toDFA' = do
@@ -247,7 +247,7 @@ toDFA nfa sigma = evalState toDFA' 0
                   D.DFAState
                     { D.stateId = s_new,
                       D.transition = undefined,
-                      D.construct = Nothing,
+                      D.construct = construct $ lookup nfa (minimum next),
                       D.payload = next
                     }
                 dfa'' = D.updateTrans dfa' k $ \t x -> if x == a then s_new else t x
