@@ -1,5 +1,7 @@
 module DFA where
 
+import Data.Graph (Vertex)
+import qualified Data.Graph as G
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
@@ -21,6 +23,8 @@ data DFA p a b = DFA
     startId :: Int,
     endIds :: Set Int
   }
+
+type Id = Int
 
 invert :: (Ord k, Ord v) => Map k v -> Map v k
 invert m = M.fromListWith (error "Malconstructed DFA") [(v, k) | (k, v) <- M.toList m]
@@ -55,3 +59,50 @@ matches dfa as = matches' (startId dfa) as
       let state = dfaStates dfa M.! s
           s' = transition state a
        in matches' s' as
+
+minimize :: DFA p a b -> DFA p a b
+minimize = undefined
+  where
+    inequivalent :: DFA p a b -> Set a -> Int -> Int -> Bool
+    inequivalent dfa sigma x y
+      | x `S.member` endIds dfa /= y `S.member` endIds dfa = True
+      | otherwise = undefined
+
+data Graph a = Graph
+  { graph :: G.Graph,
+    nodeFromVertex :: Vertex -> ((), (a, Id), [(a, Id)]),
+    vertexFromKey :: (a, Id) -> Maybe Vertex,
+    startIdG :: Id,
+    endIdsG :: Set Id
+  }
+
+instance Show (Graph a) where
+  show (Graph g _ _ start ends) = "(" ++ show g ++ "," ++ show start ++ "," ++ show ends ++ ")"
+
+toGraph :: forall p a b. Ord a => DFA p a b -> Set a -> Graph a
+toGraph dfa sigma =
+  let (g, nfv, vfk) = G.graphFromEdges edges
+   in Graph
+        { graph = g,
+          nodeFromVertex = nfv,
+          vertexFromKey = vfk,
+          startIdG = startId dfa,
+          endIdsG = endIds dfa
+        }
+  where
+    ss = dfaStates dfa
+    ts = M.map transition ss
+    edges = M.foldr f [] ss
+    f :: DFAState p a b -> [((), (a, Id), [(a, Id)])] -> [((), (a, Id), [(a, Id)])]
+    f s = ((map (\a -> ((), (a, stateId s), [(a, transition s a)])) $ S.toList sigma) ++)
+
+matchesGraph :: Graph a -> [a] -> Bool
+matchesGraph g as = matches' (startIdG g) as
+  where
+    matches' id [] = id `S.member` endIdsG g
+    matches' id (a : as) =
+      case vertexFromKey g (a, id) of
+        Nothing -> error "Malformed graph"
+        Just v ->
+          let (_, _, [(_, id')]) = nodeFromVertex g v
+           in matches' id' as

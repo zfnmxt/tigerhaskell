@@ -246,8 +246,8 @@ toDFA nfa sigma = evalState toDFA' 0
             let new_state =
                   D.DFAState
                     { D.stateId = s_new,
-                      D.transition = undefined,
-                      D.construct = construct $ lookup nfa (minimum next),
+                      D.transition = error "transition undefined",
+                      D.construct = construct $ lookup nfa $ minimum next,
                       D.payload = next
                     }
                 dfa'' = D.updateTrans dfa' k $ \t x -> if x == a then s_new else t x
