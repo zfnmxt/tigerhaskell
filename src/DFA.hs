@@ -52,6 +52,6 @@ matches dfa as = matches' (startId dfa) as
   where
     matches' s [] = s `S.member` endIds dfa
     matches' s (a : as) =
-      let state = (dfaStates dfa) M.! s
+      let state = dfaStates dfa M.! s
           s' = transition state a
        in matches' s' as

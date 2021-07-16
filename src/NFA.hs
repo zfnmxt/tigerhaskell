@@ -71,7 +71,7 @@ dfaEdge nfa ss a = S.unions $ S.map (\s -> reachable nfa s a) ss
 matches :: NFA s a b -> [a] -> Bool
 matches nfa as = matches' [startId nfa] as
   where
-    matches' ss [] = any (`elem` (endIds nfa)) ss
+    matches' ss [] = any (`elem` endIds nfa) ss
     matches' ss (a : as) = or $ do
       s <- ss
       let ss' = S.toList $ reachable nfa s a
@@ -113,7 +113,7 @@ singleton f a =
     let s0 =
           NFAState
             { stateId = x0,
-              transition = (\a' -> if a == a' then S.singleton x1 else S.empty),
+              transition = \a' -> if a == a' then S.singleton x1 else S.empty,
               epsilons = S.empty,
               construct = Nothing,
               payload = Nothing
@@ -194,7 +194,7 @@ fromRegex f r =
                 construct = f,
                 payload = Nothing
               }
-          th' = update th (endId th) (\s -> s {epsilons = S.singleton $ s_id})
+          th' = update th (endId th) (\s -> s {epsilons = S.singleton s_id})
       return $
         TH
           { nfaStates = M.insert s_id start (nfaStates th'),
@@ -238,7 +238,7 @@ toDFA nfa sigma = evalState toDFA' 0
             isEnd = any (`elem` endIds nfa) $ S.toList next
         case D.lookupId dfa' next of
           Just s ->
-            let dfa'' = D.updateTrans dfa' k (\t -> (\x -> if x == a then s else t x))
+            let dfa'' = D.updateTrans dfa' k $ \t x -> if x == a then s else t x
                 dfa''' = if isEnd then dfa'' {D.endIds = S.insert s $ D.endIds dfa''} else dfa''
              in return (dfa''', todo)
           Nothing -> do
@@ -250,6 +250,6 @@ toDFA nfa sigma = evalState toDFA' 0
                       D.construct = Nothing,
                       D.payload = next
                     }
-                dfa'' = D.updateTrans dfa' k (\t -> (\x -> if x == a then s_new else t x))
+                dfa'' = D.updateTrans dfa' k $ \t x -> if x == a then s_new else t x
                 dfa''' = if isEnd then dfa'' {D.endIds = S.insert s_new $ D.endIds dfa''} else dfa''
             return (D.insert dfa''' s_new new_state, S.insert s_new todo)
