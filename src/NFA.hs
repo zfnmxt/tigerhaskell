@@ -215,11 +215,12 @@ toDFA nfa sigma = evalState toDFA' 0
                 D.construct = Nothing,
                 D.payload = ss
               }
+          isEnd = any (`elem` endIds nfa) ss
           dfa =
             D.DFA
               { D.dfaStates = M.singleton s_id start,
                 D.startId = s_id,
-                D.endIds = S.empty
+                D.endIds = if isEnd then S.singleton s_id else S.empty
               }
       loop dfa $ S.singleton s_id
     loop :: DFA (Set Int) a b -> Set Int -> DFAM (Set Int) a b
