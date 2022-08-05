@@ -69,15 +69,6 @@ toDFA nfa =
                 (seen `S.union` new_states)
                 (new_states S.\\ todo)
 
--- delta' = F.fromList $ do
---  ss <- S.toList states'
---  a <- S.toList $ alphabet nfa
---  let qs =
---        S.fromList
---          [ q | s <- S.toList ss, q <- S.toList $ states nfa, q `S.member` F.reachables (delta_e nfa) (S.fromList $ F.int (delta nfa) (a, s))
---          ]
---  return ((a, ss), qs)
-
 union :: (Ord a, ToString s) => NFA a s -> NFA a s -> NFA a String
 union nfa1 nfa2 =
   FA
@@ -132,27 +123,3 @@ instance ToString String where
 
 instance Show a => ToString a where
   toString = show
-
--- dfaReachable :: (Ord a, Ord s) => DFA a s -> S.Set s
--- dfaReachable dfa = explore (S.singleton $ start dfa) (S.singleton $ start dfa)
---  where
---    explore seen todo
---      | S.null todo = seen
---      | otherwise =
---          let new_states =
---                S.fromList $ do
---                  s <- S.toList todo
---                  a <- S.toList $ alphabet dfa
---                  case F.int (delta dfa) (a, s) of
---                    Nothing -> []
---                    Just s' -> [s']
---           in explore (seen `S.union` new_states) (new_states S.\\ todo)
---
--- trimDFA :: (Ord a, Ord s) => DFA a s -> DFA a s
--- trimDFA dfa = dfa {delta = delta', states = reachable}
---  where
---    delta' = F.filter f $ delta dfa
---    reachable = dfaReachable dfa
---    f (a, s) (Just s') =
---      s `S.member` reachable && s' `S.member` reachable
---    f _ _ = False
