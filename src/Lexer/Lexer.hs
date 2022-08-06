@@ -1,100 +1,109 @@
 module Lexer.Lexer where
 
 import Control.Monad.Except
-import Control.Monad.State
+import Control.Monad.RWS
 import Data.List (nub)
 import Data.Maybe
 import qualified Data.Set as S
+import Debug.Trace
+import Lexer.FA
 import qualified Lexer.FA as FA
-import Lexer.Regex
+import qualified Lexer.Regex as R
 import Lexer.Tokens
 import Lexer.Types
+import Prelude hiding (lex)
 
-data ActionBase a = ActionBase
-  { action :: a,
-    actionFun :: String -> Loc -> Token,
-    actionState :: [String]
+data PayloadNode s p = PayloadNode
+  { payload :: Maybe p,
+    payloadNode :: s
   }
 
-type Action = ActionBase (NFA Char String)
+instance Eq s => Eq (PayloadNode s p) where
+  tn1 == tn2 = payloadNode tn1 == payloadNode tn2
+
+instance Ord s => Ord (PayloadNode s p) where
+  tn1 <= tn2 = payloadNode tn1 <= payloadNode tn2
+
+instance Node s => Node (PayloadNode s p) where
+  startNode = PayloadNode Nothing startNode
+  nextNode tn = tn {payloadNode = nextNode $ payloadNode tn}
+  renameFun fas i tn =
+    tn {payloadNode = renameFun (map (FA.mapNodes payloadNode) fas) i $ payloadNode tn}
+
+type TokenNode = PayloadNode Int (String -> Loc -> Token)
+
+injectPayload :: (Ord a, Ord s, Functor m) => (s -> Maybe p) -> FA m a s -> FA m a (PayloadNode s p)
+injectPayload f = mapNodes (\s -> PayloadNode (f s) s)
+
+injectToken :: Functor m => (String -> BaseToken) -> FA m Char Int -> FA m Char TokenNode
+injectToken mkToken =
+  injectPayload $ const $ Just $ \s l -> Token (mkToken s) l
 
 data Env = Env
-  { envText :: String,
-    envCur :: String,
+  { envNext :: String,
+    envRest :: String,
     envLoc :: Loc,
-    envActions :: [Action]
+    envNode :: S.Set TokenNode
   }
 
-type LexM = StateT Env (Either String)
+type LexM = RWST () [Token] Env (Either String)
 
-runLexM :: LexM a -> String -> Either String a
-runLexM m s = evalStateT m (Env s mempty initLoc actions)
+runLexM :: LexM a -> String -> Either String (a, [Token])
+runLexM m s =
+  evalRWST m () $
+    Env
+      { envNext = "",
+        envRest = s,
+        envLoc = initLoc,
+        envNode = start lexerDFA
+      }
 
-runActions :: Char -> [Action] -> [Action]
-runActions x = mapMaybe $ \a ->
-  case nub $ Prelude.concat [FA.step (action a) x s | s <- actionState a] of
-    [] -> Nothing
-    ss' -> pure $ a {actionState = ss'}
+lex :: LexM ()
+lex = do
+  env <- get
+  case envRest env of
+    "" -> pure ()
+    (c : cs) -> do
+      traceM $ envNext env
+      case step lexerDFA c (envNode env) of
+        Nothing -> do
+          unless (envNode env `S.member` accept lexerDFA) $
+            throwError "No lex."
 
-nextChar :: LexM ()
-nextChar = do
-  ss <- gets envText
-  case ss of
-    [] -> throwError "End of input."
-    (s : ss') -> do
-      modify
-        ( \env ->
-            env
-              { envText = ss',
-                envCur = envCur env ++ [s]
+          put
+            Env
+              { envNext = [c],
+                envRest = cs,
+                envLoc = updateLoc (envLoc env) c,
+                envNode = fromMaybe (error "") $ step lexerDFA c (start lexerDFA)
               }
-        )
-      pure ()
 
-look :: LexM (Maybe Char)
-look = do
-  ss <- gets envText
-  case ss of
-    [] -> pure Nothing
-    (s : _) -> pure $ Just s
+          let f = fromMaybe (error "") $ payload $ S.elemAt 0 $ envNode env
+              token = [f (envNext env) (envLoc env)]
 
-nextToken :: LexM (Token)
-nextToken = loop
+          tell token
+          lex
+        Just s' -> do
+          put
+            Env
+              { envNext = envNext env ++ [c],
+                envRest = cs,
+                envLoc = updateLoc (envLoc env) c,
+                envNode = s'
+              }
+          lex
   where
-    loop = do
-      as <- gets envActions
-      mc <- look
-      case mc of
-        Nothing -> Token EOF <$> gets envLoc
-        Just c -> do
-          let as' = runActions c as
-          case (as, as') of
-            ([], _) -> throwError "No success.1"
-            ([a], [])
-              | any (`S.member` accept (action a)) (actionState a) -> do
-                  s <- gets envCur
-                  loc <- gets envLoc
-                  pure $ actionFun a s loc
-              | otherwise -> throwError "No success.2"
-            _ -> do
-              nextChar
-              modify $ \env ->
-                env
-                  { envActions = as'
-                  }
-              loop
-
-actions :: [Action]
-actions =
-  map
-    actionfy
-    [ ActionBase
-        { action = digit,
-          actionFun = \s -> Token (INT $ read s),
-          actionState = mempty
+    updateLoc :: Loc -> Char -> Loc
+    updateLoc loc '\n' =
+      Loc
+        { locLine = locLine loc + 1,
+          locCol = 0
         }
-    ]
-  where
-    actionfy (ActionBase r f _) =
-      let nfa = toNFA r
-       in ActionBase nfa f [start nfa]
+    updateLoc loc _ = loc {locCol = locCol loc + 1}
+
+lexerDFA :: DFA Char (S.Set TokenNode)
+lexerDFA =
+  toDFA $
+    FA.unions
+      [ injectToken ID $ R.toNFA_ $ R.oneOf ['a' .. 'z']
+      ]
