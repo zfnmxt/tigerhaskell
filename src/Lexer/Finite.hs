@@ -23,6 +23,9 @@ empty = Fin M.empty
 fromMap :: MonadPlus m => Map x y -> Fin m x y
 fromMap = Fin . fmap pure
 
+toMap :: Fin m x y -> Map x (m y)
+toMap (Fin m) = m
+
 singleton :: MonadPlus m => x -> y -> Fin m x y
 singleton x y = fromMap $ M.singleton x y
 
@@ -77,14 +80,13 @@ im :: (Ord x, Ord (m y)) => Fin m x y -> S.Set (m y)
 im (Fin m) = S.fromList $ M.elems m
 
 reachable :: (Eq x, Ord x) => Fin [] x x -> x -> S.Set x
-reachable m = reachable' . S.singleton
+reachable m = dfs S.empty . S.singleton
   where
-    reachable' xs = S.fromList $ do
-      x <- S.toList xs
-      let xs' = S.fromList (int m x) `S.union` xs
-      if xs' /= xs
-        then S.toList $ reachable' xs'
-        else S.toList xs'
+    dfs seen todo
+      | S.null todo = seen
+      | otherwise =
+          let (x : rest) = S.toList todo
+           in dfs (x `S.insert` seen) (S.fromList rest `S.union` S.fromList (int m x))
 
 reachables :: (Eq x, Ord x) => Fin [] x x -> S.Set x -> S.Set x
 reachables m = S.unions . S.map (reachable m)

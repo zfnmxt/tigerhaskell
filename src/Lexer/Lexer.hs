@@ -32,10 +32,10 @@ instance Node s => Node (PayloadNode s p) where
 
 type TokenNode = PayloadNode Int (String -> Loc -> Token)
 
-injectPayload :: (Ord a, Ord s, Functor m) => (s -> Maybe p) -> FA m a s -> FA m a (PayloadNode s p)
+injectPayload :: (Ord a, Ord s, Functor m) => (s -> Maybe p) -> FA m a s t -> FA m a (PayloadNode s p) t
 injectPayload f = mapNodes (\s -> PayloadNode (f s) s)
 
-injectToken :: Functor m => (String -> BaseToken) -> FA m Char Int -> FA m Char TokenNode
+injectToken :: Functor m => (String -> BaseToken) -> FA m Char Int p -> FA m Char TokenNode p
 injectToken mkToken =
   injectPayload $ const $ Just $ \s l -> Token (mkToken s) l
 
@@ -101,7 +101,7 @@ lex = do
         }
     updateLoc loc _ = loc {locCol = locCol loc + 1}
 
-lexerDFA :: DFA Char (S.Set TokenNode)
+lexerDFA :: DFA Char (S.Set TokenNode) p
 lexerDFA =
   toDFA $
     FA.unions
@@ -118,4 +118,4 @@ letter :: Regex Char
 letter = R.oneOf $ ['a' .. 'z'] ++ ['A' .. 'Z']
 
 ident :: Regex Char
-ident = letter ::: (R.unions [letter, digit, Sym '_'])
+ident = letter ::: Star (R.unions [letter, digit, Sym '_'])
