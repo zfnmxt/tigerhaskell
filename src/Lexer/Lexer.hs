@@ -105,5 +105,17 @@ lexerDFA :: DFA Char (S.Set TokenNode)
 lexerDFA =
   toDFA $
     FA.unions
-      [ injectToken ID $ R.toNFA_ $ R.oneOf ['a' .. 'z']
+      [ injectToken ID $ R.toNFA_ ident
       ]
+
+whitespace :: Regex Char
+whitespace = Star $ R.oneOf [' ', '\t', '\n']
+
+digit :: Regex Char
+digit = R.oneOf ['0' .. '9']
+
+letter :: Regex Char
+letter = R.oneOf $ ['a' .. 'z'] ++ ['A' .. 'Z']
+
+ident :: Regex Char
+ident = letter ::: (R.unions [letter, digit, Sym '_'])

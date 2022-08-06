@@ -25,9 +25,14 @@ step fa a s = do
   stepE fa s_e'
 
 stepE :: (MonadPlus m, Monad m, Ord a, Ord s) => FA m a s -> s -> m s
-stepE fa s = mplus (pure s) $ do
-  s' <- F.int (delta_e fa) s
-  stepE fa s'
+stepE fa = stepE' S.empty
+  where
+    stepE' seen s
+      | s `S.member` seen = mzero
+      | otherwise =
+          mplus (pure s) $ do
+            s' <- F.int (delta_e fa) s
+            stepE' (S.insert s seen) s'
 
 int :: (MonadPlus m, Monad m, Ord a, Ord s) => FA m a s -> [a] -> s -> m s
 int fa [] s = stepE fa s

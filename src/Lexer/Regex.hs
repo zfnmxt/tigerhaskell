@@ -6,7 +6,7 @@ import qualified Lexer.Finite as F
 import Lexer.Types
 
 unions :: [Regex a] -> Regex a
-unions = foldr (\r1 r2 -> r1 :|: r2) Empty
+unions = foldr (:|:) Empty
 
 oneOf :: [a] -> Regex a
 oneOf = unions . map Sym
@@ -19,6 +19,9 @@ plus r = r ::: Star r
 
 lit :: [a] -> Regex a
 lit = foldr (\a b -> Sym a ::: b) Epsilon
+
+concat :: [Regex a] -> Regex a
+concat = foldr (:::) Empty
 
 toNFA :: (Node s, Ord a) => Regex a -> NFA a s
 toNFA (Sym a) =
@@ -54,9 +57,3 @@ toDFA = FA.toDFA . toNFA
 
 accepts :: Ord a => Regex a -> [a] -> Bool
 accepts r = FA.accepts $ toNFA_ r
-
-whitespace :: Regex Char
-whitespace = Star $ oneOf [' ', '\t', '\n']
-
-digit :: Regex Char
-digit = oneOf ['0' .. '9']
