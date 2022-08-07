@@ -102,10 +102,10 @@ toDFAFlat nfa = mapNodes (toEnum . (m M.!)) dfa
     dfa = toDFA nfa
     m = M.fromList $ zip (S.elems $ states dfa) [1 ..]
 
-unions :: (Ord s, Ord a, Node s) => [NFA a s p] -> NFA a s p
+unions :: Ord a => [NFA a Int p] -> NFA a Int p
 unions = foldr1 union
 
-union :: (Ord s, Ord a, Node s) => NFA a s p -> NFA a s p -> NFA a s p
+union :: (Ord s, Ord a) => NFA a s p -> NFA a s p -> NFA a Int p
 union nfa1 nfa2 =
   FA
     { delta = delta nfa1_s <> delta nfa2_s',
@@ -117,13 +117,13 @@ union nfa1 nfa2 =
       payloads = payloads nfa1_s <> payloads nfa2_s'
     }
   where
-    [nfa1_s, nfa2_s] = renameNodes [nfa1, nfa2]
+    [nfa1_s, nfa2_s] = renameFAS [nfa1, nfa2]
     sub x y z
       | z == x = y
-      | otherwise = x
+      | otherwise = z
     nfa2_s' = mapNodes (sub (start nfa2_s) (start nfa1_s)) nfa2_s
 
-concat :: (Ord s, Ord a, Node s) => NFA a s p -> NFA a s p -> NFA a s p
+concat :: (Ord s, Ord a) => NFA a s p -> NFA a s p -> NFA a Int p
 concat nfa1 nfa2 =
   FA
     { delta = delta nfa1_s <> delta nfa2_s,
@@ -135,11 +135,11 @@ concat nfa1 nfa2 =
       payloads = payloads nfa1_s <> payloads nfa2_s
     }
   where
-    [nfa1_s, nfa2_s] = renameNodes [nfa1, nfa2]
+    [nfa1_s, nfa2_s] = renameFAS [nfa1, nfa2]
     link =
       F.fromList $ map (,start nfa2_s) $ S.toList $ accept nfa1_s
 
-star :: (Ord s, Ord a, Node s) => NFA a s p -> NFA a s p
+star :: (Ord s, Ord a) => NFA a s p -> NFA a s p
 star nfa =
   nfa
     { delta_e = loop <> delta_e nfa,
@@ -149,17 +149,17 @@ star nfa =
     loop =
       F.fromList $ map (,start nfa) $ S.toList $ accept nfa
 
-renameNodes :: (Functor m, Ord a, Node s, Ord s) => [FA m a s p] -> [FA m a s p]
-renameNodes fas = zipWith (\fa i -> mapNodes (renameFun fas i) fa) fas [1 ..]
+renameFA :: (Functor m, Ord a, Ord s) => FA m a s p -> Int -> FA m a Int p
+renameFA fa start = mapNodes (m M.!) fa
+  where
+    m = M.fromList $ zip (S.toList $ states fa) [start ..]
 
-instance Node String where
-  startNode = "start"
-  nextNode = (++ "_")
-  renameFun _ i = (++ ("_" ++ show i))
-
-instance Node Int where
-  startNode = 0
-  nextNode = (+ 1)
-  renameFun fas i =
-    let global_max = (maximum $ map (S.findMax . states) fas)
-     in (+ i * (global_max + 1))
+renameFAS :: (Functor m, Ord a, Ord s) => [FA m a s p] -> [FA m a Int p]
+renameFAS =
+  fst
+    . foldr
+      ( \fa (fas, start) ->
+          let fa' = renameFA fa start
+           in (fa' : fas, maximum $ states fa')
+      )
+      ([], 0)
