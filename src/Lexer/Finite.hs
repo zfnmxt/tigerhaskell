@@ -3,13 +3,14 @@ module Lexer.Finite where
 import Control.Applicative
 import Control.Monad
 import Data.Bifunctor
+import qualified Data.Foldable
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Set as S
 import Prelude
 
-newtype Fin m x y = Fin (Map x (m y)) deriving (Show)
+newtype Fin m x y = Fin (Map x (m y)) deriving (Show, Read)
 
 instance Functor m => Functor (Fin m x) where
   fmap f (Fin m) = Fin $ (fmap . fmap) f m
@@ -79,17 +80,19 @@ dom (Fin m) = S.fromList $ M.keys m
 im :: (Ord x, Ord (m y)) => Fin m x y -> S.Set (m y)
 im (Fin m) = S.fromList $ M.elems m
 
-reachable :: (Eq x, Ord x) => Fin [] x x -> x -> S.Set x
-reachable m = dfs S.empty . S.singleton
+reachables :: (Eq x, Ord x) => Fin [] x x -> S.Set x -> S.Set x
+reachables m = dfs S.empty
   where
     dfs seen todo
       | S.null todo = seen
       | otherwise =
           let (x : rest) = S.toList todo
-           in dfs (x `S.insert` seen) (S.fromList rest `S.union` S.fromList (int m x))
+              seen' = x `S.insert` seen
+              todo' = (S.fromList rest `S.union` S.fromList (int m x)) S.\\ seen'
+           in dfs seen' todo'
 
-reachables :: (Eq x, Ord x) => Fin [] x x -> S.Set x -> S.Set x
-reachables m = S.unions . S.map (reachable m)
+reachable :: (Eq x, Ord x) => Fin [] x x -> x -> S.Set x
+reachable m = reachables m . S.singleton
 
 partApp :: (Eq x, Ord y) => Fin m (x, y) z -> x -> Fin m y z
 partApp (Fin m) x =

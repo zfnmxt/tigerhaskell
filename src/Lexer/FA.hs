@@ -7,6 +7,7 @@ import Data.Bifunctor
 import Data.Foldable
 import Data.List (sort)
 import qualified Data.Map as M
+import Data.Maybe
 import qualified Data.Set as S
 import qualified Lexer.Finite as F
 import Lexer.Types
@@ -48,7 +49,7 @@ int_ fa as = int fa as $ start fa
 accepts :: (Foldable m, MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> [a] -> Bool
 accepts fa as = or $ (`S.member` accept fa) <$> int_ fa as
 
-toDFA :: (Ord a, Ord s) => NFA a s p -> DFA a (S.Set s) p
+toDFA :: (Ord a, Ord s, Ord p) => NFA a s p -> DFA a (S.Set s) (S.Set p)
 toDFA nfa =
   FA
     { delta = delta',
@@ -57,12 +58,16 @@ toDFA nfa =
       accept = accept',
       states = states',
       alphabet = alphabet nfa,
-      payloads = M.empty
+      payloads = payloads'
     }
   where
-    (delta', states') = construct mempty (S.singleton start') (S.singleton start')
+    (delta', states') = construct mempty mempty (S.singleton start')
     start' = F.reachable (delta_e nfa) (start nfa)
     accept' = S.fromList [s | s <- S.toList states', not $ null (s `S.intersection` accept nfa)]
+    payloads' =
+      M.fromList $
+        map (\ss -> (ss, S.fromList $ mapMaybe (payloads nfa M.!?) (S.toList ss))) $
+          S.toList states'
     construct transitions seen todo
       | S.null todo = (F.fromSet transitions, seen)
       | otherwise =
@@ -79,17 +84,19 @@ toDFA nfa =
                       then []
                       else [((a, ss), qs)]
               new_states = S.map snd new_transitions
+              seen' = ss `S.insert` seen
+              todo' = (S.fromList rest `S.union` new_states) S.\\ seen'
            in construct
                 (transitions `S.union` new_transitions)
-                (seen `S.union` new_states)
-                (new_states S.\\ todo)
+                seen'
+                todo'
 
 simplifyStates :: (Functor m, Enum s, Ord a, Ord s) => FA m a s p -> FA m a s p
 simplifyStates fa = mapNodes (toEnum . (m M.!)) fa
   where
     m = M.fromList $ zip (S.elems $ states fa) [1 ..]
 
-toDFAFlat :: (Enum s, Ord a, Ord s) => NFA a s p -> DFA a s p
+toDFAFlat :: (Enum s, Ord a, Ord s, Ord p) => NFA a s p -> DFA a s (S.Set p)
 toDFAFlat nfa = mapNodes (toEnum . (m M.!)) dfa
   where
     dfa = toDFA nfa
@@ -107,7 +114,7 @@ union nfa1 nfa2 =
       accept = accept nfa1_s `S.union` accept nfa2_s',
       states = states nfa1_s `S.union` states nfa2_s',
       alphabet = alphabet nfa1_s `S.union` alphabet nfa2_s',
-      payloads = mempty
+      payloads = payloads nfa1_s <> payloads nfa2_s'
     }
   where
     [nfa1_s, nfa2_s] = renameNodes [nfa1, nfa2]
@@ -125,7 +132,7 @@ concat nfa1 nfa2 =
       accept = accept nfa2_s,
       states = states nfa1_s `S.union` states nfa2_s,
       alphabet = alphabet nfa1 `S.union` alphabet nfa2,
-      payloads = mempty
+      payloads = payloads nfa1_s <> payloads nfa2_s
     }
   where
     [nfa1_s, nfa2_s] = renameNodes [nfa1, nfa2]

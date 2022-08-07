@@ -13,7 +13,7 @@ data FA m a s p = FA
     alphabet :: Set a,
     payloads :: Map s p
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 type DFA = FA Maybe
 

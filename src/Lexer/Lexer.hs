@@ -3,6 +3,7 @@ module Lexer.Lexer where
 import Control.Monad.Except
 import Control.Monad.RWS
 import Data.List (nub)
+import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Set as S
 import Debug.Trace
@@ -13,58 +14,45 @@ import Lexer.Tokens
 import Lexer.Types
 import Prelude hiding (lex)
 
-data PayloadNode s p = PayloadNode
-  { payload :: Maybe p,
-    payloadNode :: s
-  }
-
-instance Eq s => Eq (PayloadNode s p) where
-  tn1 == tn2 = payloadNode tn1 == payloadNode tn2
-
-instance Ord s => Ord (PayloadNode s p) where
-  tn1 <= tn2 = payloadNode tn1 <= payloadNode tn2
-
-instance Node s => Node (PayloadNode s p) where
-  startNode = PayloadNode Nothing startNode
-  nextNode tn = tn {payloadNode = nextNode $ payloadNode tn}
-  renameFun fas i tn =
-    tn {payloadNode = renameFun (map (FA.mapNodes payloadNode) fas) i $ payloadNode tn}
-
-type TokenNode = PayloadNode Int (String -> Loc -> Token)
-
-injectPayload :: (Ord a, Ord s, Functor m) => (s -> Maybe p) -> FA m a s t -> FA m a (PayloadNode s p) t
-injectPayload f = mapNodes (\s -> PayloadNode (f s) s)
-
-injectToken :: Functor m => (String -> BaseToken) -> FA m Char Int p -> FA m Char TokenNode p
-injectToken mkToken =
-  injectPayload $ const $ Just $ \s l -> Token (mkToken s) l
-
 data Env = Env
   { envNext :: String,
+    envNextLoc :: Loc,
     envRest :: String,
     envLoc :: Loc,
-    envNode :: S.Set TokenNode
+    envNode :: Int
   }
 
 type LexM = RWST () [Token] Env (Either String)
+
+lex :: String -> Either String [Token]
+lex = fmap snd . runLexM lexer
 
 runLexM :: LexM a -> String -> Either String (a, [Token])
 runLexM m s =
   evalRWST m () $
     Env
       { envNext = "",
+        envNextLoc = initLoc,
         envRest = s,
         envLoc = initLoc,
         envNode = start lexerDFA
       }
 
-lex :: LexM ()
-lex = do
+lexer :: LexM ()
+lexer = do
   env <- get
   case envRest env of
-    "" -> pure ()
+    "" -> do
+      unless (envNode env `S.member` accept lexerDFA) $
+        throwError "No lex."
+
+      let token =
+            case payloads lexerDFA M.!? envNode env of
+              Just tk -> [mkToken (S.findMin tk) (envNext env) (envNextLoc env)]
+              Nothing -> []
+
+      tell token
     (c : cs) -> do
-      traceM $ envNext env
       case step lexerDFA c (envNode env) of
         Nothing -> do
           unless (envNode env `S.member` accept lexerDFA) $
@@ -73,25 +61,28 @@ lex = do
           put
             Env
               { envNext = [c],
+                envNextLoc = updateLoc (envLoc env) c,
                 envRest = cs,
                 envLoc = updateLoc (envLoc env) c,
                 envNode = fromMaybe (error "") $ step lexerDFA c (start lexerDFA)
               }
 
-          let f = fromMaybe (error "") $ payload $ S.elemAt 0 $ envNode env
-              token = [f (envNext env) (envLoc env)]
+          let token =
+                case payloads lexerDFA M.!? envNode env of
+                  Just tk -> [mkToken (S.findMin tk) (envNext env) (envNextLoc env)]
+                  Nothing -> []
 
           tell token
-          lex
+          lexer
         Just s' -> do
           put
-            Env
+            env
               { envNext = envNext env ++ [c],
                 envRest = cs,
                 envLoc = updateLoc (envLoc env) c,
                 envNode = s'
               }
-          lex
+          lexer
   where
     updateLoc :: Loc -> Char -> Loc
     updateLoc loc '\n' =
@@ -101,11 +92,18 @@ lex = do
         }
     updateLoc loc _ = loc {locCol = locCol loc + 1}
 
-lexerDFA :: DFA Char (S.Set TokenNode) p
+label :: Ord s => String -> FA m a s p -> FA m a s String
+label label fa = fa {payloads = M.fromList $ map (\s -> (s, label)) $ S.toList $ accept fa}
+
+noLabel :: FA m a s p -> FA m a s String
+noLabel fa = fa {payloads = M.empty}
+
+lexerDFA :: DFA Char Int (S.Set String)
 lexerDFA =
-  toDFA $
+  toDFAFlat $
     FA.unions
-      [ injectToken ID $ R.toNFA_ ident
+      [ label "ID" $ R.toNFA_ ident,
+        noLabel $ R.toNFA_ whitespace
       ]
 
 whitespace :: Regex Char

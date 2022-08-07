@@ -52,18 +52,18 @@ toNFA (r1 :|: r2) = toNFA r1 `FA.union` toNFA r2
 toNFA (r1 ::: r2) = toNFA r1 `FA.concat` toNFA r2
 toNFA (Star r) = FA.star $ toNFA r
 
-toNFA_ :: Ord a => Regex a -> NFA a Int p
-toNFA_ = FA.simplifyStates . toNFA . flatten
+toNFA_ :: Ord a => Regex a -> NFA a Int (S.Set p)
+toNFA_ = FA.simplifyStates . toNFA
 
-toDFA :: (Node s, Ord a) => Regex a -> DFA a (S.Set s) p
+toDFA :: (Node s, Ord a, Ord p) => Regex a -> DFA a (S.Set s) (S.Set p)
 toDFA = FA.toDFA . toNFA
 
 accepts :: Ord a => Regex a -> [a] -> Bool
 accepts r = FA.accepts $ toNFA_ r
 
-flatten :: Regex a -> Regex a
-flatten = unions . flatten'
-  where
-    flatten' (r1 :|: r2) = flatten' r1 ++ flatten' r2
-    flatten' (r1 ::: r2) = [flatten r1 ::: flatten r2]
-    flatten' r = [r]
+-- flatten :: Regex a -> Regex a
+-- flatten = unions . flatten'
+--  where
+--    flatten' (r1 :|: r2) = flatten' r1 ++ flatten' r2
+--    flatten' (r1 ::: r2) = [flatten r1 ::: flatten r2]
+--    flatten' r = [r]

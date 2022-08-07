@@ -38,7 +38,10 @@ library
     build-depends:
         base >=4.14.1.0,
         containers >= 0.6,
-        mtl >= 2.2
+        mtl >= 2.2,
+        template-haskell,
+        array,
+        generic-deriving
 
     hs-source-dirs:   src
     default-language: Haskell2010
@@ -51,3 +54,4 @@ library
       OverlappingInstances
       FlexibleInstances
       TypeSynonymInstances
+      StandaloneDeriving
