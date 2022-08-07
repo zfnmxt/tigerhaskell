@@ -2,6 +2,7 @@ module Lexer.Lexer where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Data.Char
 import Data.List (nub)
 import qualified Data.Map as M
 import Data.Maybe
@@ -48,7 +49,7 @@ lexer = do
 
       let token =
             case payloads lexerDFA M.!? envNode env of
-              Just tk -> [mkToken (S.findMin tk) (envNext env) (envNextLoc env)]
+              Just tk -> [mkToken tk (envNext env) (envNextLoc env)]
               Nothing -> []
 
       tell token
@@ -69,7 +70,7 @@ lexer = do
 
           let token =
                 case payloads lexerDFA M.!? envNode env of
-                  Just tk -> [mkToken (S.findMin tk) (envNext env) (envNextLoc env)]
+                  Just tk -> [mkToken tk (envNext env) (envNextLoc env)]
                   Nothing -> []
 
           tell token
@@ -92,65 +93,23 @@ lexer = do
         }
     updateLoc loc _ = loc {locCol = locCol loc + 1}
 
-label :: Ord a => String -> Regex a -> NFA a Int String
-label label r = nfa {payloads = M.fromList $ map (\s -> (s, label)) $ S.toList $ accept nfa}
-  where
-    nfa = R.toNFA_ r
+class Label a where
+  label :: String -> a -> NFA Char Int String
+  ignore :: a -> NFA Char Int String
 
-ignore :: Ord a => Regex a -> NFA a Int String
-ignore r = (R.toNFA_ r) {payloads = M.empty}
+instance Label (Regex Char) where
+  label name r = nfa {payloads = M.fromList $ map (\s -> (s, name)) $ S.toList $ accept nfa}
+    where
+      nfa = R.toNFA r
+  ignore r = (R.toNFA r) {payloads = M.empty}
 
-lexerNFA :: NFA Char Int String
-lexerNFA =
-  FA.unions
-    [ label "TYPE" $ R.lit "type",
-      label "VAR" $ R.lit "var",
-      label "FUNCTION" $ R.lit "function",
-      label "BREAK" $ R.lit "break",
-      label "OF" $ R.lit "of",
-      label "END" $ R.lit "end",
-      label "IN" $ R.lit "in",
-      label "NIL" $ R.lit "nil",
-      label "LET" $ R.lit "let",
-      label "DO" $ R.lit "do",
-      label "TO" $ R.lit "to",
-      label "FOR" $ R.lit "for",
-      label "WHILE" $ R.lit "while",
-      label "ELSE" $ R.lit "else",
-      label "THEN" $ R.lit "then",
-      label "IF" $ R.lit "if",
-      label "ARRAY" $ R.lit "array",
-      label "ASSIGN" $ R.lit ":=",
-      label "OR" $ R.lit "|",
-      label "AND" $ R.lit "&",
-      label "GE" $ R.lit ">=",
-      label "GT" $ R.lit ">",
-      label "LE" $ R.lit "<=",
-      label "LT" $ R.lit "<",
-      label "NEQ" $ R.lit "<>",
-      label "EQ" $ R.lit "=",
-      label "DIVIDE" $ R.lit "/",
-      label "TIMES" $ R.lit "*",
-      label "MINUS" $ R.lit "-",
-      label "PLUS" $ R.lit "+",
-      label "DOT" $ R.lit ".",
-      label "RBRACE" $ R.lit "}",
-      label "LBRACE" $ R.lit "{",
-      label "RBRACK" $ R.lit "]",
-      label "LBRACK" $ R.lit "[",
-      label "RPAREN" $ R.lit ")",
-      label "LPAREN" $ R.lit "(",
-      label "SEMICOLON" $ R.lit ";",
-      label "COLON" $ R.lit ":",
-      label "COMMA" $ R.lit ",",
-      label "ID" $ letter ::: Star (R.unions [letter, digit, Sym '_']),
-      label "INT" $ R.plus digit,
-      ignore whitespace
-    ]
+instance Label (NFA Char Int String) where
+  label name nfa = nfa {payloads = M.fromList $ map (\s -> (s, name)) $ S.toList $ accept nfa}
+  ignore nfa = nfa {payloads = M.empty}
 
-lexerDFA :: DFA Char Int (S.Set String)
+lexerDFA :: DFA Char Int String
 lexerDFA =
-  toDFAFlat $
+  toDFA $
     FA.unions
       [ label "TYPE" $ R.lit "type",
         label "VAR" $ R.lit "var",
@@ -192,22 +151,16 @@ lexerDFA =
         label "SEMICOLON" $ R.lit ";",
         label "COLON" $ R.lit ":",
         label "COMMA" $ R.lit ",",
-        label "ID" $ letter ::: Star (R.unions [letter, digit, Sym '_']),
-        label "INT" $ R.plus digit,
+        label "ID" $ FA.oneOf letters `FA.concat` FA.star (FA.oneOf $ letters ++ digits ++ "_"),
+        label "INT" $ FA.plus $ FA.oneOf digits,
         ignore whitespace
       ]
 
 whitespace :: Regex Char
 whitespace = Star $ R.oneOf [' ', '\t', '\n']
 
-digit :: Regex Char
-digit = R.oneOf ['0' .. '9']
+digits :: [Char]
+digits = ['0' .. '9']
 
-letter :: Regex Char
-letter = R.oneOf $ ['a' .. 'z'] ++ ['A' .. 'Z']
-
-symbols :: Regex Char
-symbols = R.oneOf ",:;()[]{}.+-*/=<><<=>>=&|:=!@#$%^'?"
-
-printable :: Regex Char
-printable = digit :|: letter :|: symbols
+letters :: [Char]
+letters = filter isLetter [minBound .. maxBound]

@@ -49,58 +49,48 @@ int_ fa as = int fa as $ start fa
 accepts :: (Foldable m, MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> [a] -> Bool
 accepts fa as = or $ (`S.member` accept fa) <$> int_ fa as
 
-toDFA :: (Ord a, Ord s, Ord p) => NFA a s p -> DFA a (S.Set s) (S.Set p)
-toDFA nfa =
-  FA
-    { delta = delta',
-      delta_e = F.empty,
-      start = start',
-      accept = accept',
-      states = states',
-      alphabet = alphabet nfa,
-      payloads = payloads'
-    }
+closure :: (Ord a, Ord s, Ord p) => NFA a s p -> S.Set s -> S.Set s
+closure = F.reachables . delta_e
+
+dfaEdge :: (Ord a, Ord s, Ord p) => NFA a s p -> a -> S.Set s -> S.Set s
+dfaEdge nfa a ss = closure nfa $ S.fromList [s' | s <- S.toList ss, s' <- F.int (delta nfa) (a, s)]
+
+toDFA :: (Ord a, Ord s, Ord p, Enum s) => NFA a s p -> DFA a s p
+toDFA nfa = mapNodes (toEnum . (m M.!)) dfa
   where
-    (delta', states') = construct mempty mempty (S.singleton start')
+    m = M.fromList $ zip (S.elems $ states dfa) [1 ..]
+    dfa =
+      FA
+        { delta = delta',
+          delta_e = F.empty,
+          start = start',
+          accept = accept',
+          states = states',
+          alphabet = alphabet nfa,
+          payloads = payloads'
+        }
+    (states', delta') = loop mempty (S.singleton start') F.empty
     start' = F.reachable (delta_e nfa) (start nfa)
     accept' = S.fromList [s | s <- S.toList states', not $ null (s `S.intersection` accept nfa)]
     payloads' =
       M.fromList $
-        map (\ss -> (ss, S.fromList $ mapMaybe (payloads nfa M.!?) (S.toList ss))) $
+        map (\ss -> (ss, minimum $ mapMaybe (payloads nfa M.!?) (S.toList ss))) $
           S.toList states'
-    construct transitions seen todo
-      | S.null todo = (F.fromSet transitions, seen)
+    loop seen todo f
+      | S.null todo = (seen, f)
       | otherwise =
           let (ss : rest) = S.toList todo
-              new_transitions =
-                S.fromList $
-                  do
-                    a <- S.toList $ alphabet nfa
-                    let qs =
-                          S.fromList
-                            [ q | s <- S.toList ss, q <- S.toList $ states nfa, q `S.member` F.reachables (delta_e nfa) (S.fromList $ F.int (delta nfa) (a, s))
-                            ]
-                    if S.null qs
-                      then []
-                      else [((a, ss), qs)]
-              new_states = S.map snd new_transitions
-              seen' = ss `S.insert` seen
-              todo' = (S.fromList rest `S.union` new_states) S.\\ seen'
-           in construct
-                (transitions `S.union` new_transitions)
-                seen'
-                todo'
-
-simplifyStates :: (Functor m, Enum s, Ord a, Ord s) => FA m a s p -> FA m a s p
-simplifyStates fa = mapNodes (toEnum . (m M.!)) fa
-  where
-    m = M.fromList $ zip (S.elems $ states fa) [1 ..]
-
-toDFAFlat :: (Enum s, Ord a, Ord s, Ord p) => NFA a s p -> DFA a s (S.Set p)
-toDFAFlat nfa = mapNodes (toEnum . (m M.!)) dfa
-  where
-    dfa = toDFA nfa
-    m = M.fromList $ zip (S.elems $ states dfa) [1 ..]
+              (f', todo') = construct todo f ss seen
+           in loop (ss `S.insert` seen) (todo' `S.union` S.fromList rest) f'
+    construct todo f ss seen =
+      foldl (fold_fun ss seen) (f, mempty) $ S.toList $ alphabet nfa
+    fold_fun ss seen (f, todo) a =
+      let e = dfaEdge nfa a ss
+          f' = F.singleton (a, ss) e F.<+ f
+          todo'
+            | e `S.member` seen = todo
+            | otherwise = e `S.insert` todo
+       in (f', todo')
 
 unions :: Ord a => [NFA a Int p] -> NFA a Int p
 unions = foldr1 union
@@ -108,20 +98,16 @@ unions = foldr1 union
 union :: (Ord s, Ord a) => NFA a s p -> NFA a s p -> NFA a Int p
 union nfa1 nfa2 =
   FA
-    { delta = delta nfa1_s <> delta nfa2_s',
-      delta_e = delta_e nfa1_s <> delta_e nfa2_s',
-      start = start nfa1_s,
-      accept = accept nfa1_s `S.union` accept nfa2_s',
-      states = states nfa1_s `S.union` states nfa2_s',
-      alphabet = alphabet nfa1_s `S.union` alphabet nfa2_s',
-      payloads = payloads nfa1_s <> payloads nfa2_s'
+    { delta = delta nfa1_s <> delta nfa2_s,
+      delta_e = link <> delta_e nfa1_s <> delta_e nfa2_s,
+      start = 0,
+      accept = accept nfa1_s `S.union` accept nfa2_s,
+      states = S.insert 0 $ states nfa1_s `S.union` states nfa2_s,
+      alphabet = alphabet nfa1 `S.union` alphabet nfa2
     }
   where
     [nfa1_s, nfa2_s] = renameFAS [nfa1, nfa2]
-    sub x y z
-      | z == x = y
-      | otherwise = z
-    nfa2_s' = mapNodes (sub (start nfa2_s) (start nfa1_s)) nfa2_s
+    link = F.fromList [(0, start nfa1_s), (0, start nfa2_s)]
 
 concat :: (Ord s, Ord a) => NFA a s p -> NFA a s p -> NFA a Int p
 concat nfa1 nfa2 =
@@ -160,6 +146,21 @@ renameFAS =
     . foldr
       ( \fa (fas, start) ->
           let fa' = renameFA fa start
-           in (fa' : fas, maximum $ states fa')
+           in (fa' : fas, (maximum $ states fa') + 1)
       )
       ([], 0)
+
+oneOf :: Ord a => [a] -> NFA a Int String
+oneOf as =
+  FA
+    { delta = F.fromList [((a, 0), 1) | a <- as],
+      delta_e = F.empty,
+      start = 0,
+      accept = S.singleton 1,
+      states = S.fromList [0, 1],
+      alphabet = S.fromList as,
+      payloads = mempty
+    }
+
+plus :: Ord a => NFA a Int String -> NFA a Int String
+plus nfa = nfa `Lexer.FA.concat` star nfa

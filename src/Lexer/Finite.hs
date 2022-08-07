@@ -4,6 +4,7 @@ import Control.Applicative
 import Control.Monad
 import Data.Bifunctor
 import qualified Data.Foldable
+import Data.List (nub)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Maybe
@@ -81,15 +82,14 @@ im :: (Ord x, Ord (m y)) => Fin m x y -> S.Set (m y)
 im (Fin m) = S.fromList $ M.elems m
 
 reachables :: (Eq x, Ord x) => Fin [] x x -> S.Set x -> S.Set x
-reachables m = dfs S.empty
+reachables m = bfs mempty
   where
-    dfs seen todo
+    bfs seen todo
       | S.null todo = seen
       | otherwise =
-          let (x : rest) = S.toList todo
-              seen' = x `S.insert` seen
-              todo' = (S.fromList rest `S.union` S.fromList (int m x)) S.\\ seen'
-           in dfs seen' todo'
+          let seen' = seen `S.union` todo
+              todo' = S.fromList [x' | x <- S.toList todo, x' <- int m x] S.\\ seen'
+           in bfs seen' todo'
 
 reachable :: (Eq x, Ord x) => Fin [] x x -> x -> S.Set x
 reachable m = reachables m . S.singleton
