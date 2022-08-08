@@ -12,6 +12,9 @@ import qualified Data.Set as S
 import qualified Lexer.Finite as F
 import Lexer.Types
 
+lookupPayload :: Ord s => FA m a s p -> s -> p
+lookupPayload fa = (payloads fa M.!)
+
 mapNodes :: (Functor m, Ord s', Ord a) => (s -> s') -> FA m a s p -> FA m a s' p
 mapNodes f fa =
   fa
@@ -73,9 +76,14 @@ toDFA nfa = mapNodes (toEnum . (m M.!)) dfa
     start' = F.reachable (delta_e nfa) (start nfa)
     accept' = S.fromList [s | s <- S.toList states', not $ null (s `S.intersection` accept nfa)]
     payloads' =
-      M.fromList $
-        map (\ss -> (ss, minimum $ mapMaybe (payloads nfa M.!?) (S.toList ss))) $
-          S.toList states'
+      M.unions
+        $ map
+          ( \ss ->
+              case mapMaybe (payloads nfa M.!?) (S.toList ss) of
+                [] -> mempty
+                ps -> M.singleton ss (minimum ps)
+          )
+        $ S.toList states'
     loop seen todo f
       | S.null todo = (seen, f)
       | otherwise =
@@ -86,14 +94,16 @@ toDFA nfa = mapNodes (toEnum . (m M.!)) dfa
       foldl (fold_fun ss seen) (f, mempty) $ S.toList $ alphabet nfa
     fold_fun ss seen (f, todo) a =
       let e = dfaEdge nfa a ss
-          f' = F.singleton (a, ss) e F.<+ f
+          f'
+            | S.null e = f
+            | otherwise = F.singleton (a, ss) e F.<+ f
           todo'
             | e `S.member` seen = todo
             | otherwise = e `S.insert` todo
        in (f', todo')
 
 unions :: Ord a => [NFA a Int p] -> NFA a Int p
-unions = foldr1 union
+unions = foldl1 union
 
 union :: (Ord s, Ord a) => NFA a s p -> NFA a s p -> NFA a Int p
 union nfa1 nfa2 =
@@ -101,9 +111,10 @@ union nfa1 nfa2 =
     { delta = delta nfa1_s <> delta nfa2_s,
       delta_e = link <> delta_e nfa1_s <> delta_e nfa2_s,
       start = 0,
-      accept = accept nfa1_s `S.union` accept nfa2_s,
-      states = S.insert 0 $ states nfa1_s `S.union` states nfa2_s,
-      alphabet = alphabet nfa1 `S.union` alphabet nfa2
+      accept = accept nfa1_s <> accept nfa2_s,
+      states = S.insert 0 $ states nfa1_s <> states nfa2_s,
+      alphabet = alphabet nfa1_s <> alphabet nfa2_s,
+      payloads = payloads nfa1_s <> payloads nfa2_s
     }
   where
     [nfa1_s, nfa2_s] = renameFAS [nfa1, nfa2]

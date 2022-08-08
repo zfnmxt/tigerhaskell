@@ -55,3 +55,4 @@ library
       FlexibleInstances
       TypeSynonymInstances
       StandaloneDeriving
+      FlexibleContexts

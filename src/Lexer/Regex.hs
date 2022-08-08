@@ -50,7 +50,7 @@ toNFA (r1 :|: r2) = toNFA r1 `FA.union` toNFA r2
 toNFA (r1 ::: r2) = toNFA r1 `FA.concat` toNFA r2
 toNFA (Star r) = FA.star $ toNFA r
 
-toDFA :: (Ord a, Ord p) => Regex a -> DFA a Int (S.Set p)
+toDFA :: (Ord a, Ord p) => Regex a -> DFA a Int p
 toDFA = FA.toDFA . toNFA
 
 accepts :: Ord a => Regex a -> [a] -> Bool

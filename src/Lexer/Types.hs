@@ -27,8 +27,3 @@ data Regex a
   | (:::) (Regex a) (Regex a)
   | Star (Regex a)
   deriving (Show, Eq)
-
-class Ord s => Node s where
-  startNode :: s
-  nextNode :: s -> s
-  renameFun :: (Ord a, Functor m) => [FA m a s p] -> Int -> s -> s

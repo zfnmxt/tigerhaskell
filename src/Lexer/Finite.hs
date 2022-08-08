@@ -19,6 +19,9 @@ instance Functor m => Functor (Fin m x) where
 instance (MonadPlus m, Ord x, Ord y) => Semigroup (Fin m x y) where
   (<>) = (<+)
 
+instance (MonadPlus m, Ord x, Ord y) => Monoid (Fin m x y) where
+  mempty = Lexer.Finite.empty
+
 empty :: Fin m x y
 empty = Fin M.empty
 
