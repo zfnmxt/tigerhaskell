@@ -56,3 +56,5 @@ library
       TypeSynonymInstances
       StandaloneDeriving
       FlexibleContexts
+      MultiParamTypeClasses
+      AllowAmbiguousTypes

@@ -1,8 +1,10 @@
 {-# LANGUAGE ConstrainedClassMethods #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 module Lexer.FA where
 
 import Control.Monad
+import Control.Monad.RWS
 import Data.Bifunctor
 import Data.Foldable
 import Data.List (sort)
@@ -11,6 +13,36 @@ import Data.Maybe
 import qualified Data.Set as S
 import qualified Lexer.Finite as F
 import Lexer.Types
+
+class FAEnv e k a s | e -> k a s where
+  envConsumed :: e -> [a]
+  envUpdConsumed :: ([a] -> [a]) -> e -> e
+  envRest :: e -> [a]
+  envUpdRest :: ([a] -> [a]) -> e -> e
+  envState :: e -> k s
+  envUpdState :: (k s -> k s) -> e -> e
+  envFA :: e -> FA k a s p
+
+class Monad m => FAM m k a s p where
+  next :: m (Maybe a)
+  state :: m (k s)
+  doStep :: a -> (k s -> m z) -> m z
+  getFA :: m (FA k a s p)
+
+instance (FAEnv e k a s, MonadState e m, MonadPlus k, Ord a, Monad k, Ord s) => FAM m k a s p where
+  next = do
+    rest <- gets envRest
+    case rest of
+      [] -> pure Nothing
+      (c : cs) -> do
+        modify $ envUpdRest (const cs) . envUpdConsumed (++ [c])
+        pure $ Just c
+  state = gets envState
+  getFA = gets envFA
+  doStep a f = do
+    fa <- getFA
+    modify $ envUpdState (step fa a =<<)
+    gets envState >>= f
 
 lookupPayload :: Ord s => FA m a s p -> s -> p
 lookupPayload fa = (payloads fa M.!)

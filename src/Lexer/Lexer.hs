@@ -36,8 +36,6 @@ data NEnv = NEnv
 
 type NodeM = RWST () () NEnv (Either String)
 
-type Action = String -> Loc -> LexM ()
-
 type Label = String
 
 type Priority = Int
@@ -51,8 +49,6 @@ type Lexer = T.DFA EdgeLabel Label (DFA, M.Map EdgeLabel (String -> Loc -> [Toke
 type DFA = T.DFA Char Int EdgeLabel
 
 type NFA = T.NFA Char Int EdgeLabel
-
--- type Node = (Label, F.Fin Maybe (EdgeLabel, Label) Label, M.Map EdgeLabel (DFA, String -> Loc -> [Token]))
 
 type Node = (Label, F.Fin Maybe (EdgeLabel, Label) Label, (DFA, M.Map EdgeLabel (String -> Loc -> [Token])))
 
@@ -68,12 +64,9 @@ commentNode :: Node
 commentNode =
   mkNode
     "COMMENT"
-    []
-
---  [ ("*/", R.toNFA $ R.lit "*/", (const . const) mempty, "START"),
---    -- (".", FA.plus $ FA.oneOf $ lexerAlphabet, (const . const) mempty, "COMMENT")
---    (".", FA.plus $ FA.oneOf $ ['a' .. 'z'], (const . const) mempty, "COMMENT")
---  ]
+    [ ("*/", R.toNFA $ R.lit "*/", (const . const) mempty, "START"),
+      (".", FA.plus $ FA.oneOf lexerAlphabet, (const . const) mempty, "COMMENT")
+    ]
 
 startNode :: Node
 startNode =
@@ -81,8 +74,7 @@ startNode =
     "START"
     [ ("if", R.toNFA $ R.lit "if", \s l -> [mkToken "IF" s l], "START"),
       ("[a-z]+", FA.plus $ FA.oneOf ['a' .. 'z'], \s l -> [mkToken "ID" s l], "START"),
-      ("whitespace", R.toNFA $ Sym ' ', (const . const) mempty, "START")
-      -- ("/*", R.toNFA $ R.lit "/*", (const . const) mempty, "COMMENT")
+      ("/*", R.toNFA $ R.lit "/*", (const . const) mempty, "COMMENT")
     ]
 
 edge ::
@@ -101,17 +93,16 @@ lexer =
     { delta = mconcat delta',
       delta_e = mempty,
       start = head states',
-      accept = S.fromList states', -- todo, fix?
+      accept = S.fromList states',
       states = S.fromList states',
       alphabet = S.fromList $ M.keys $ mconcat $ map snd payloads', -- shouldn't concat
       payloads = M.fromList $ zip states' payloads'
-      -- needs to be a fromlistwith based on priority.
     }
   where
     (states', delta', payloads') =
       unzip3
-        [ startNode
-        --    commentNode
+        [ startNode,
+          commentNode
         ]
 
 lookupEdge :: NodeM EdgeLabel
@@ -147,6 +138,9 @@ runNode = do
         Nothing -> do
           unless (state `S.member` accept dfa) $
             throwError "No lex2."
+
+          unless (not $ null consumed) $
+            throwError "No lex3."
 
           f <- lookupAction
           edgeLabel <- lookupEdge
@@ -198,7 +192,6 @@ lex = do
               }
         )
       env' <- get
-      -- traceM $ "env' " <> show env'
       lex
 
 doLex :: String -> Either String [Token]
@@ -214,118 +207,6 @@ runLexM m s =
         envLabel = start lexer
       }
 
--- step :: LexM ()
--- step = do
---  env <- get
---
---  let newLabel = FA.step lexer edgeLabel (envLabel env)
-
--- lexer :: LexM ()
--- lexer = do
---  env <- get
---  case envRest env of
---    "" -> do
---      unless (envNode env `S.member` accept (envDFA env)) $
---        throwError "No lex."
---
---      let token =
---            case payloads (envDFA env) M.!? envNode env of
---              Just tk -> [mkToken tk (envNext env) (envNextLoc env)]
---              Nothing -> []
---
---      tell token
---    (c : cs) -> do
---      case step (envDFA env) c (envNode env) of
---        Nothing -> do
---          unless (envNode env `S.member` accept (envDFA env)) $
---            throwError "No lex."
---
---          put
---            env
---              { envNext = [c],
---                envNextLoc = updateLoc (envLoc env) c,
---                envRest = cs,
---                envLoc = updateLoc (envLoc env) c,
---                envNode = fromMaybe (error "") $ step (envDFA env) c (start lexerDFA)
---              }
---
---          let token =
---                case payloads (envDFA env) M.!? envNode env of
---                  Just tk -> [mkToken tk (envNext env) (envNextLoc env)]
---                  Nothing -> []
---
---          tell token
---          lexer
---        Just s' -> do
---          put
---            env
---              { envNext = envNext env ++ [c],
---                envRest = cs,
---                envLoc = updateLoc (envLoc env) c,
---                envNode = s'
---              }
---          lexer
---  where
---    updateLoc :: Loc -> Char -> Loc
---    updateLoc loc '\n' =
---      Loc
---        { locLine = locLine loc + 1,
---          locCol = 0
---        }
---    updateLoc loc _ = loc {locCol = locCol loc + 1}
-
--- Combine all the DFAs for each node. Each DFA should be labeled with its
--- EdgeLabel, in addition to its standard label.
-
--- step :: LexM ()
--- step = do
---  input <- gets envInput
---  lookupPayload
---
-
--- modifyLexer :: (Lexer -> Lexer) -> LexM ()
--- modifyLexer f =
---  modify $ \env -> env {envLexer = f $ envLexer env}
---
--- setLabel :: Label -> LexM ()
--- setLabel label =
---  modify $ \env -> env {envLabel = label}
---
--- goto :: Label -> LexM ()
--- goto next = do
---  label <- gets envLabel
---  edgeLabel <- asks renvInput
---  modifyLexer $ \l -> l {delta = F.singleton (edgeLabel, label) next F.<+ delta l}
---
--- continue :: LexM ()
--- continue = gets envLabel >>= goto
-
--- where
---  action' s loc = local (const $ REnv edgeLabel) $ action s loc
-
--- comment :: LexM ()
--- comment = do
---  setLabel "COMMENT"
---  modifyLexer $ \l ->
---        <$> sequence
---          [ withAction "END" (R.lit "*/") $ \_ _ ->
---              -- "END" is the name of this dfa
---              goto "START",
---            withAction "BODY" (FA.plus $ FA.oneOf $ lexerAlphabet) $ \_ _ ->
---              continue
---          ]
-
--- Steps after any of these!
-
--- nextLabel :: Label -> Label
--- nextLabel = (+ 1)
---
--- newLabel :: LexM (Label)
--- newLabel = do
---  label <- gets envNextLabel
---  modify $ \env -> env {envNextLabel = nextLabel label}
---  pure label
-
 class RegLang r where
   toNFA :: r -> NFA
   toDFA :: r -> DFA
@@ -337,83 +218,6 @@ instance RegLang (Regex Char) where
 instance RegLang NFA where
   toNFA = id
   toDFA = FA.toDFA
-
--- withAction :: RegLang l => EdgeLabel -> l -> Action -> LexM NFA
--- withAction edgeLabel l action = do
---  modify $ \env -> env {envActions = M.insert edgeLabel action $ envActions env}
---  pure $ toNFA l
---  where
---    action' s loc = local (const $ REnv edgeLabel) $ action s loc
-
--- lex :: String -> Either String [Token]
--- lex = fmap snd . runLexM lexer
---
--- runLexM :: LexM a -> String -> Either String (a, [Token])
--- runLexM m s =
---  evalRWST m () $
---    Env
---      { envNext = "",
---        envNextLoc = initLoc,
---        envRest = s,
---        envLoc = initLoc,
---        envNode = start lexerDFA,
---        envCommentDepth = 0,
---        envDFA = lexerDFA
---      }
-
--- lexer :: LexM ()
--- lexer = do
---  env <- get
---  case envRest env of
---    "" -> do
---      unless (envNode env `S.member` accept (envDFA env)) $
---        throwError "No lex."
---
---      let token =
---            case payloads (envDFA env) M.!? envNode env of
---              Just tk -> [mkToken tk (envNext env) (envNextLoc env)]
---              Nothing -> []
---
---      tell token
---    (c : cs) -> do
---      case step (envDFA env) c (envNode env) of
---        Nothing -> do
---          unless (envNode env `S.member` accept (envDFA env)) $
---            throwError "No lex."
---
---          put
---            env
---              { envNext = [c],
---                envNextLoc = updateLoc (envLoc env) c,
---                envRest = cs,
---                envLoc = updateLoc (envLoc env) c,
---                envNode = fromMaybe (error "") $ step (envDFA env) c (start lexerDFA)
---              }
---
---          let token =
---                case payloads (envDFA env) M.!? envNode env of
---                  Just tk -> [mkToken tk (envNext env) (envNextLoc env)]
---                  Nothing -> []
---
---          tell token
---          lexer
---        Just s' -> do
---          put
---            env
---              { envNext = envNext env ++ [c],
---                envRest = cs,
---                envLoc = updateLoc (envLoc env) c,
---                envNode = s'
---              }
---          lexer
---  where
---    updateLoc :: Loc -> Char -> Loc
---    updateLoc loc '\n' =
---      Loc
---        { locLine = locLine loc + 1,
---          locCol = 0
---        }
---    updateLoc loc _ = loc {locCol = locCol loc + 1}
 
 -- class Labeled a where
 --  label :: String -> a -> NFA
@@ -503,7 +307,7 @@ printable :: [Char]
 printable = filter isPrint [minBound .. maxBound]
 
 lexerAlphabet :: [Char]
-lexerAlphabet = printable
+lexerAlphabet = ['a' .. 'z'] ++ ['A' .. 'Z'] -- printable
 
 -- action :: String -> Action
 -- action "COMMENT_START" _ _ = do
