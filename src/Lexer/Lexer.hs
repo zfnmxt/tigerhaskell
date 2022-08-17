@@ -1,7 +1,10 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Lexer.Lexer where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Control.Monad.Trans.Maybe
 import Data.Char
 import Data.List (nub)
 import qualified Data.List as L
@@ -9,32 +12,14 @@ import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Set as S
 import Debug.Trace
+import Lexer.FA (Env (..), MonadDFA (..))
 import qualified Lexer.FA as FA
 import qualified Lexer.Finite as F
 import qualified Lexer.Regex as R
 import Lexer.Tokens
 import Lexer.Types hiding (DFA, NFA)
 import qualified Lexer.Types as T
-import Prelude hiding (lex)
-
-data Env = Env
-  { envInput :: String,
-    envLoc :: Loc,
-    envCommentDepth :: Int,
-    envLabel :: Label
-  }
-  deriving (Show)
-
-data NEnv = NEnv
-  { nEnvConsumed :: String,
-    nEnvRest :: String,
-    nEnvLoc :: Loc,
-    nEnvState :: Int,
-    nEnvDFA :: DFA,
-    nEnvActions :: M.Map EdgeLabel (String -> Loc -> [Token])
-  }
-
-type NodeM = RWST () () NEnv (Either String)
+import Prelude hiding (EQ, GT, LT, lex)
 
 type Label = String
 
@@ -42,23 +27,58 @@ type Priority = Int
 
 type EdgeLabel = (Priority, String)
 
-type LexM = RWST () [Token] Env (Either String)
-
-type Lexer = T.DFA EdgeLabel Label (DFA, M.Map EdgeLabel (String -> Loc -> [Token]))
-
 type DFA = T.DFA Char Int EdgeLabel
 
 type NFA = T.NFA Char Int EdgeLabel
 
-type Node = (Label, F.Fin Maybe (EdgeLabel, Label) Label, (DFA, M.Map EdgeLabel (String -> Loc -> [Token])))
+type Action = (String -> Loc -> [Token])
 
-mkNode :: Label -> [(Label, T.NFA Char Int Label, String -> Loc -> [Token], Label)] -> Node
-mkNode label xs = squash $ zipWith (edge label) [0 ..] xs
+type ActionMap = M.Map EdgeLabel Action
+
+type NodeEnv = Env Char Int (Loc, ActionMap)
+
+type NodeM = RWST DFA () NodeEnv (Either String)
+
+data Node = Node
+  { nodeLabel :: Label,
+    nodeDelta :: F.Fin Maybe (EdgeLabel, Label) Label,
+    nodeDFA :: DFA,
+    nodeActions :: ActionMap
+  }
+
+type LexEnv = Env Char Label (Loc, Int)
+
+type LexM = RWST Lexer [Token] LexEnv (Either String)
+
+type Lexer = T.DFA EdgeLabel Label (DFA, ActionMap)
+
+mkEdge ::
+  Label ->
+  Priority ->
+  (Label, T.NFA Char Int Label, Action, Label) ->
+  (F.Fin Maybe (EdgeLabel, Label) Label, NFA, ActionMap)
+mkEdge label priority (edgeLabel, nfa, action, next) =
+  (d, nfa {payloads = payloads'}, actions)
+  where
+    d = F.singleton ((priority, edgeLabel), label) next
+    payloads' =
+      M.fromList $
+        map (\s -> (s, (priority, edgeLabel))) $
+          S.toList $
+            accept nfa
+    actions = M.singleton (priority, edgeLabel) action
+
+mkNode :: Label -> [(Label, T.NFA Char Int Label, Action, Label)] -> Node
+mkNode label xs = squash $ zipWith (mkEdge label) [0 ..] xs
   where
     squash edges =
-      let (fs, nfams) = unzip edges
-          (nfas, ms) = unzip nfams
-       in (label, mconcat fs, (toDFA $ FA.unions nfas, mconcat ms))
+      let (fs, nfas, ms) = unzip3 edges
+       in Node
+            { nodeLabel = label,
+              nodeDelta = mconcat fs,
+              nodeDFA = FA.toDFA $ FA.unions nfas,
+              nodeActions = mconcat ms
+            }
 
 commentNode :: Node
 commentNode =
@@ -72,166 +92,229 @@ startNode :: Node
 startNode =
   mkNode
     "START"
-    [ ("if", R.toNFA $ R.lit "if", \s l -> [mkToken "IF" s l], "START"),
-      ("[a-z]+", FA.plus $ FA.oneOf ['a' .. 'z'], \s l -> [mkToken "ID" s l], "START"),
-      ("/*", R.toNFA $ R.lit "/*", (const . const) mempty, "COMMENT")
-    ]
-
-edge ::
-  Label ->
-  Priority ->
-  (Label, T.NFA Char Int Label, String -> Loc -> [Token], Label) ->
-  (F.Fin Maybe (EdgeLabel, Label) Label, (NFA, M.Map EdgeLabel (String -> Loc -> [Token])))
-edge label priority (edgeLabel, nfa, action, next) =
-  ( F.singleton ((priority, edgeLabel), label) next,
-    (nfa {payloads = M.fromList $ map (\s -> (s, (priority, edgeLabel))) $ S.toList $ accept nfa}, M.singleton (priority, edgeLabel) action)
-  )
+    $ ( map
+          (\(bt, s) -> (show bt, R.toNFA $ R.lit s, \_ l -> [Token bt l], "START"))
+          [ (TYPE, "type"),
+            (VAR, "var"),
+            (FUNCTION, "function"),
+            (BREAK, "break"),
+            (OF, "of"),
+            (END, "end"),
+            (IN, "in"),
+            (NIL, "nil"),
+            (LET, "let"),
+            (DO, "do"),
+            (TO, "to"),
+            (FOR, "for"),
+            (WHILE, "while"),
+            (ELSE, "else"),
+            (THEN, "then"),
+            (IF, "if"),
+            (ARRAY, "array"),
+            (ASSIGN, ":="),
+            (OR, "|"),
+            (AND, "&"),
+            (GE, ">="),
+            (GT, ">"),
+            (LE, "<="),
+            (LT, "<"),
+            (NEQ, "<>"),
+            (EQ, "="),
+            (DIVIDE, "/"),
+            (TIMES, "*"),
+            (MINUS, "-"),
+            (PLUS, "+"),
+            (DOT, "."),
+            (RBRACE, "}"),
+            (LBRACE, "{"),
+            (RBRACK, "]"),
+            (LBRACK, "["),
+            (RPAREN, ")"),
+            (LPAREN, "("),
+            (SEMICOLON, ";"),
+            (COLON, ":"),
+            (COMMA, ",")
+          ]
+      )
+      ++ [ ("int", FA.plus $ FA.oneOf digits, \s l -> [Token (INT $ read s) l], "START"),
+           ( "id",
+             FA.oneOf letters `FA.concat` FA.plus (FA.oneOf $ concat [letters, digits, "_"]),
+             \s l -> [Token (ID s) l],
+             "START"
+           ),
+           ( "string",
+             R.toNFA (Sym '\"')
+               `FA.concat` ( FA.plus $
+                               FA.oneOf (' ' : (printable L.\\ ['\\', '\"']))
+                                 `FA.union` R.toNFA
+                                   ( Sym '\\'
+                                       ::: R.unions
+                                         ( [ R.plus (R.oneOf [' ', '\t', '\n', '\f'] ::: Sym '\\'),
+                                             (Sym '^' ::: R.oneOf ['A' .. 'Z'])
+                                           ]
+                                             ++ map R.lit ["n", "t", "ddd", "\"", "\\"]
+                                         )
+                                   )
+                           )
+               `FA.concat` R.toNFA (Sym '\"'),
+             \s l -> [Token (STRING $ read s) l],
+             "START"
+           ),
+           ("/*", R.toNFA $ R.lit "/*", (const . const) mempty, "COMMENT")
+         ]
 
 lexer :: Lexer
 lexer =
   FA
-    { delta = mconcat delta',
+    { delta = mconcat deltas,
       delta_e = mempty,
-      start = head states',
-      accept = S.fromList states',
-      states = S.fromList states',
-      alphabet = S.fromList $ M.keys $ mconcat $ map snd payloads', -- shouldn't concat
-      payloads = M.fromList $ zip states' payloads'
+      start = head labels,
+      accept = S.fromList labels,
+      states = S.fromList labels,
+      alphabet = S.fromList $ M.keys $ mconcat $ map snd dfasActions,
+      payloads = M.fromList $ zip labels dfasActions
     }
   where
-    (states', delta', payloads') =
-      unzip3
-        [ startNode,
-          commentNode
-        ]
+    labels = map nodeLabel nodes
+    deltas = map nodeDelta nodes
+    dfasActions = map (\n -> (nodeDFA n, nodeActions n)) nodes
+    nodes =
+      [ startNode,
+        commentNode
+      ]
 
 lookupEdge :: NodeM EdgeLabel
 lookupEdge = do
-  dfa <- gets nEnvDFA
-  state <- gets nEnvState
+  dfa <- ask
+  state <- gets envState
   pure $ dfa `FA.lookupPayload` state
 
-lookupAction :: NodeM (String -> Loc -> [Token])
+lookupAction :: NodeM Action
 lookupAction = do
-  actions <- gets nEnvActions
+  actions <- gets (snd . envMisc)
   edgeLabel <- lookupEdge
   pure $ actions M.! edgeLabel
 
-runNodeM :: NodeM a -> NEnv -> Either String (a, NEnv)
-runNodeM m nenv = do
-  (a, s, _) <- runRWST m () nenv
+runNodeM :: NodeM a -> DFA -> NodeEnv -> Either String (a, NodeEnv)
+runNodeM m dfa nenv = do
+  (a, s, _) <- runRWST m dfa nenv
   pure (a, s)
 
-runNode :: NodeM ([Token], EdgeLabel)
-runNode = do
-  nEnv@(NEnv consumed rest loc state dfa actions) <- get
-  case rest of
-    "" -> do
-      unless (state `S.member` accept dfa) $
-        throwError "No lex1."
+instance MonadDFA NodeM Char Char Int where
+  faLook = do
+    rest <- gets envRest
+    case rest of
+      [] -> pure Nothing
+      (c : cs) -> do
+        pure $ Just c
 
+  faNext = do
+    mc <- FA.faLook
+    case mc of
+      Nothing -> pure ()
+      Just c ->
+        modify $ \env ->
+          env
+            { envConsumed = envConsumed env ++ [c],
+              envRest = tail $ envRest env
+            }
+
+  faOnStep a =
+    modify $ \env ->
+      env
+        { envMisc =
+            let (loc, actions) = envMisc env
+             in (updateLoc loc a, actions)
+        }
+
+updateLoc :: Loc -> Char -> Loc
+updateLoc loc '\n' =
+  Loc
+    { locLine = locLine loc + 1,
+      locCol = 0
+    }
+updateLoc loc _ = loc {locCol = locCol loc + 1}
+
+runNode :: NodeM ([Token], EdgeLabel)
+runNode = FA.faUntil accept reject
+  where
+    onStep a _ _ =
+      modify $ \env ->
+        env
+          { envMisc =
+              let (loc, actions) = envMisc env
+               in (updateLoc loc a, actions)
+          }
+    accept = do
+      env@(Env consumed rest state (loc, actions)) <- get
       f <- lookupAction
       edgeLabel <- lookupEdge
-      pure (f consumed loc, edgeLabel)
-    (c : cs) -> do
-      case FA.step dfa c state of
-        Nothing -> do
-          unless (state `S.member` accept dfa) $
-            throwError "No lex2."
+      pure (f (envConsumed env) loc, edgeLabel)
+    reject =
+      throwError "No lex."
 
-          unless (not $ null consumed) $
-            throwError "No lex3."
-
-          f <- lookupAction
-          edgeLabel <- lookupEdge
-          pure (f consumed loc, edgeLabel)
-        Just s' -> do
-          put
-            nEnv
-              { nEnvConsumed = consumed ++ [c],
-                nEnvRest = cs,
-                nEnvLoc = updateLoc loc c,
-                nEnvState = s'
-              }
-          runNode
-  where
-    updateLoc :: Loc -> Char -> Loc
-    updateLoc loc '\n' =
-      Loc
-        { locLine = locLine loc + 1,
-          locCol = 0
-        }
-    updateLoc loc _ = loc {locCol = locCol loc + 1}
+instance MonadDFA LexM Char EdgeLabel Label where
+  faLook = do
+    Env _ rest label (loc, commentDepth) <- get
+    case rest of
+      "" -> do
+        tell [Token EOF loc]
+        pure Nothing
+      as -> do
+        let (dfa, actions) = lexer `FA.lookupPayload` label
+            nEnv =
+              Env
+                { envConsumed = mempty,
+                  envRest = rest,
+                  envState = start dfa,
+                  envMisc = (loc, actions)
+                }
+        ((token, edgeLabel), nEnv') <- lift $ runNodeM runNode dfa nEnv
+        tell token
+        modify
+          ( \env' ->
+              env'
+                { envConsumed = envConsumed env' ++ envConsumed nEnv',
+                  envRest = envRest nEnv',
+                  envMisc =
+                    let (_, cd) = envMisc env'
+                     in (fst $ envMisc $ nEnv', cd)
+                }
+          )
+        pure $ Just edgeLabel
+  faNext = pure ()
+  faOnStep _ = pure ()
 
 lex :: LexM ()
-lex = do
-  env@(Env input loc commentDepth label) <- get
-  case input of
-    "" -> tell [Token EOF loc]
-    cs -> do
-      let (dfa, actions) = lexer `FA.lookupPayload` label
-          nEnv =
-            NEnv
-              { nEnvConsumed = mempty,
-                nEnvRest = input,
-                nEnvLoc = loc,
-                nEnvState = start dfa,
-                nEnvDFA = dfa,
-                nEnvActions = actions
-              }
-      ((token, edgeLabel), nEnv') <- lift $ runNodeM runNode nEnv
-      tell token
-      let label' = fromMaybe (error "") $ FA.step lexer edgeLabel label
-      -- traceM $ "token: " <> show token
-      modify
-        ( \env' ->
-            env'
-              { envInput = nEnvRest nEnv',
-                envLoc = nEnvLoc nEnv',
-                envLabel = label'
-              }
-        )
-      env' <- get
-      lex
+lex = FA.faUntil accepts rejects
+  where
+    accepts = pure ()
+    rejects = throwError "No lex."
 
 doLex :: String -> Either String [Token]
 doLex = fmap snd . runLexM lex
 
 runLexM :: LexM a -> String -> Either String (a, [Token])
 runLexM m s =
-  evalRWST m () $
+  evalRWST m lexer $
     Env
-      { envInput = s,
-        envLoc = initLoc,
-        envCommentDepth = 0,
-        envLabel = start lexer
+      { envConsumed = mempty,
+        envRest = s,
+        envState = start lexer,
+        envMisc = (initLoc, 0)
       }
 
-class RegLang r where
-  toNFA :: r -> NFA
-  toDFA :: r -> DFA
-
-instance RegLang (Regex Char) where
-  toNFA = R.toNFA
-  toDFA = R.toDFA
-
-instance RegLang NFA where
-  toNFA = id
-  toDFA = FA.toDFA
-
--- class Labeled a where
---  label :: String -> a -> NFA
---  ignore :: a -> NFA Char Int String
---
 -- instance Labeled (Regex Char) where
---  label name r = nfa {payloads = M.fromList $ map (\s -> (s, name)) $ S.toList $ accept nfa}
---    where
---      nfa = R.toNFA r
---  ignore r = (R.toNFA r) {payloads = M.empty}
+-- label name r =
+--
+--   nfa {payloads = M.fromList $ map (\s -> (s, name)) $ S.toList $ accept nfa}
+--   where
+--     nfa = R.toNFA r
+-- ignore r = (R.toNFA r) {payloads = M.empty}
 --
 -- instance Labeled (NFA Char Int String) where
---  label name nfa = nfa {payloads = M.fromList $ map (\s -> (s, name)) $ S.toList $ accept nfa}
---  ignore nfa = nfa {payloads = M.empty}
+-- label name nfa = nfa {payloads = M.fromList $ map (\s -> (s, name)) $ S.toList $ accept nfa}
+-- ignore nfa = nfa {payloads = M.empty}
 --
 -- lexerDFA :: DFA Char Int String
 -- lexerDFA =
@@ -291,9 +374,6 @@ instance RegLang NFA where
 --      [ label "COMMENT_BODY" $ FA.oneOf $ printable
 --      ]
 
-whitespace :: Regex Char
-whitespace = Star $ R.oneOf [' ', '\t', '\n']
-
 digits :: [Char]
 digits = ['0' .. '9']
 
@@ -301,13 +381,17 @@ alphabet :: [Char]
 alphabet = ['a' .. 'z']
 
 letters :: [Char]
-letters = filter isLetter [minBound .. maxBound]
+letters = ['A' .. 'Z'] ++ ['a' .. 'z']
+
+-- letters = filter isLetter [minBound .. maxBound]
 
 printable :: [Char]
-printable = filter isPrint [minBound .. maxBound]
+printable = letters ++ digits
+
+-- printable = filter isPrint [minBound .. maxBound]
 
 lexerAlphabet :: [Char]
-lexerAlphabet = ['a' .. 'z'] ++ ['A' .. 'Z'] -- printable
+lexerAlphabet = ['a' .. 'z'] ++ ['A' .. 'Z'] ++ [' ', '\n', '\t'] ++ ['0' .. '9'] -- printable
 
 -- action :: String -> Action
 -- action "COMMENT_START" _ _ = do

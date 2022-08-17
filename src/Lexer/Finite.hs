@@ -17,7 +17,7 @@ instance Functor m => Functor (Fin m x) where
   fmap f (Fin m) = Fin $ (fmap . fmap) f m
 
 instance (MonadPlus m, Ord x, Ord y) => Semigroup (Fin m x y) where
-  (<>) = (<+)
+  Fin f <> Fin g = Fin $ M.unionWith mplus f g
 
 instance (MonadPlus m, Ord x, Ord y) => Monoid (Fin m x y) where
   mempty = Lexer.Finite.empty
