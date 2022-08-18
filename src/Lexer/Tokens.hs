@@ -24,7 +24,10 @@ class Located a where
 instance Located Token where
   loc = tokenLoc
 
-data Token = Token {token :: BaseToken, tokenLoc :: Loc} deriving (Show, Eq, Ord)
+data Token = Token {token :: BaseToken, tokenLoc :: Loc} deriving (Eq, Ord)
+
+instance Show Token where
+  show (Token t l) = show t <> " (" <> show l <> ")"
 
 data BaseToken
   = TYPE
