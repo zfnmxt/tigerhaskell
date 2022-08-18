@@ -1,5 +1,3 @@
-{-# LANGUAGE ConstrainedClassMethods #-}
-
 module Lexer.FA where
 
 import Control.Monad
@@ -12,58 +10,6 @@ import Data.Maybe
 import qualified Data.Set as S
 import qualified Lexer.Finite as F
 import Lexer.Types
-
-data Env a s g = Env
-  { envConsumed :: [a],
-    envRest :: [a],
-    envState :: s,
-    envMisc :: g
-  }
-
-class MonadDFA m a s where
-  look :: m (Maybe a)
-  next :: m ()
-  run :: (a -> m ()) -> m b -> m b -> m b
-
-instance (Ord a, Ord s, MonadState (Env a s g) m, MonadReader (DFA a s p) m) => MonadDFA m a s where
-  look = do
-    rest <- gets envRest
-    case rest of
-      [] -> pure Nothing
-      (c : cs) -> do
-        pure $ Just c
-
-  next = do
-    mc <- look
-    case mc of
-      Nothing -> pure ()
-      Just c ->
-        modify $ \env ->
-          env
-            { envConsumed = envConsumed env ++ [c],
-              envRest = tail $ envRest env
-            }
-
-  run onStep accepts rejects = do
-    dfa <- ask
-    s <- gets envState
-    ma <- look
-    case ma of
-      Nothing ->
-        if s `S.member` accept dfa
-          then accepts
-          else rejects
-      Just a -> do
-        case step dfa a s of
-          Nothing ->
-            if s `S.member` accept dfa
-              then accepts
-              else rejects
-          Just s' -> do
-            next
-            modify $ \env -> env {envState = s'}
-            onStep a
-            run onStep accepts rejects
 
 lookupPayload :: Ord s => FA m a s p -> s -> p
 lookupPayload fa = (payloads fa M.!)
@@ -240,3 +186,56 @@ oneOf as =
 
 plus :: Ord a => NFA a Int String -> NFA a Int String
 plus nfa = nfa `Lexer.FA.concat` star nfa
+
+-- For simulating automatons step-by-step
+data Env a s g = Env
+  { envConsumed :: [a],
+    envRest :: [a],
+    envState :: s,
+    envMisc :: g
+  }
+
+class MonadDFA m a s where
+  look :: m (Maybe a)
+  next :: m ()
+  run :: (a -> m ()) -> m b -> m b -> m b
+
+instance (Ord a, Ord s, MonadState (Env a s g) m, MonadReader (DFA a s p) m) => MonadDFA m a s where
+  look = do
+    rest <- gets envRest
+    case rest of
+      [] -> pure Nothing
+      (c : cs) -> do
+        pure $ Just c
+
+  next = do
+    mc <- look
+    case mc of
+      Nothing -> pure ()
+      Just c ->
+        modify $ \env ->
+          env
+            { envConsumed = envConsumed env ++ [c],
+              envRest = tail $ envRest env
+            }
+
+  run onStep accepts rejects = do
+    dfa <- ask
+    s <- gets envState
+    ma <- look
+    case ma of
+      Nothing ->
+        if s `S.member` accept dfa
+          then accepts
+          else rejects
+      Just a -> do
+        case step dfa a s of
+          Nothing ->
+            if s `S.member` accept dfa
+              then accepts
+              else rejects
+          Just s' -> do
+            next
+            modify $ \env -> env {envState = s'}
+            onStep a
+            run onStep accepts rejects
