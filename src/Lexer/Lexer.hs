@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module Lexer.Lexer where
+module Lexer.Lexer (lex) where
 
 import Control.Monad.Except
 import Control.Monad.RWS

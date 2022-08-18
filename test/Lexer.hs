@@ -1,14 +1,17 @@
 module Lexer where
 
+import Control.Monad
+import Data.Either
+import Lexer.Lexer
 import Test.Tasty
 import Test.Tasty.HUnit
+import Util
+import Prelude hiding (lex)
 
-test_unitTests :: TestTree
-test_unitTests =
-  testGroup
-    "Unit Tests"
-    [ testCase "String comparison 1" $
-        assertEqual "description" "OK" "OK",
-      testCase "String comparison 2" $ -- should fail
-        assertEqual "description" "fail" "fail!"
-    ]
+test_tigerTestCases :: IO (TestTree)
+test_tigerTestCases = do
+  files <- testFiles
+  pure $ testGroup "Included testcases" $ map func files
+  where
+    func :: TestFile -> TestTree
+    func f = testCase (name f) $ assertBool "" $ isRight $ lex (contents f)
