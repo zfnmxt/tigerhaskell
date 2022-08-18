@@ -6,13 +6,15 @@ maintainer:         zfnmxt@zfnmxt.com
 extra-source-files: CHANGELOG.md
 
 library
-  exposed-modules:    Lexer.Lexer
-  other-modules:
+  exposed-modules:
+    Lexer
+    Lexer.Lexer
     Lexer.FA
     Lexer.Finite
     Lexer.Regex
     Lexer.Tokens
     Lexer.Types
+  other-modules:
 
   build-depends:
     , base

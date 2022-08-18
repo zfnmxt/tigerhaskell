@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module Lexer.Lexer (lex) where
+module Lexer.Lexer where
 
 import Control.Monad.Except
 import Control.Monad.RWS
@@ -285,6 +285,10 @@ whitespace = filter isSpace [minBound .. maxBound]
 
 digits :: [Char]
 digits = ['0' .. '9']
+
+-- Using the full character sets requires that the lexer generate an
+-- actual lexer module at compiler-time; otherwise it takes too long
+-- to build the DFAs.
 
 letters :: [Char]
 letters = filter (\c -> isLatin1 c && isLetter c) [minBound .. maxBound]
