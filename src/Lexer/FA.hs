@@ -1,6 +1,4 @@
 {-# LANGUAGE ConstrainedClassMethods #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Lexer.FA where
 
@@ -16,268 +14,57 @@ import qualified Data.Set as S
 import qualified Lexer.Finite as F
 import Lexer.Types
 
-data Env c s g = Env
-  { envConsumed :: [c],
-    envRest :: [c],
+data Env a s g = Env
+  { envConsumed :: [a],
+    envRest :: [a],
     envState :: s,
     envMisc :: g
   }
 
-class MonadDFA m c a s | m -> c a s where
-  faLook :: m (Maybe a)
-  faNext :: m ()
-  faOnStep :: a -> m ()
+class MonadDFA m a s where
+  look :: m (Maybe a)
+  next :: m ()
+  run :: (a -> m ()) -> m b -> m b -> m b
 
-faUntil ::
-  ( Ord a,
-    Ord s,
-    MonadState (Env c s g) m,
-    MonadReader (DFA a s p) m
-  ) =>
-  MonadDFA m c a s =>
-  m b ->
-  m b ->
-  m b
-faUntil accepts rejects = do
-  dfa <- ask
-  s <- gets envState
-  ma <- faLook
-  case ma of
-    Nothing ->
-      if s `S.member` accept dfa
-        then accepts
-        else rejects
-    Just a ->
-      case step dfa a s of
-        Nothing ->
-          if s `S.member` accept dfa
-            then accepts
-            else rejects
-        Just s' -> do
-          faNext
-          modify $ \env -> env {envState = s'}
-          faOnStep a
-          faUntil accepts rejects
+instance (Ord a, Ord s, MonadState (Env a s g) m, MonadReader (DFA a s p) m) => MonadDFA m a s where
+  look = do
+    rest <- gets envRest
+    case rest of
+      [] -> pure Nothing
+      (c : cs) -> do
+        pure $ Just c
 
---  dfa <- ask
---  s <- gets envState
---  ma <- faNext
---  case ma of
---    Nothing ->
---      if s `S.member` accept dfa
---        then accepts
---        else rejects
---    Just a ->
---      case step dfa a s of
---        Nothing ->
---          if s `S.member` accept dfa
---            then accepts
---            else rejects
---        Just s' -> do
---          modify $ \env -> env {envState = s'}
---          onStep a s s'
---          faAccepts faNext onStep accepts rejects
+  next = do
+    mc <- look
+    case mc of
+      Nothing -> pure ()
+      Just c ->
+        modify $ \env ->
+          env
+            { envConsumed = envConsumed env ++ [c],
+              envRest = tail $ envRest env
+            }
 
--- class MonadFA m t a s p where
---  faNext :: m (Maybe a)
---  faState :: t s
---  faStep :: (s -> t m ()) -> (s -> t m ()) -> t m Bool
---  faAccepts :: (s -> t m ()) -> (s -> t m ()) -> t m Bool
---
--- instance
---  ( Ord a,
---    Ord s,
---    Env e a s,
---    MonadTrans t,
---    MonadPlus (t m),
---    MonadState e m,
---    MonadReader (FA (t m) a s p) m,
---    MonadError g m
---  ) =>
---  MonadFA m t a s p
---  where
---  faNext = do
---    rest <- gets envRest
---    case rest of
---      [] -> pure Nothing
---      (c : cs) -> do
---        modify $ envUpdRest (const cs) . envUpdConsumed (++ [c])
---        pure $ Just c
---  faStep f_n f_j = do
---    ma <- lift $ faNext
---    s <- lift $ gets envState
---    case ma of
---      Nothing -> do
---        f_n s
---        pure False
---      Just a -> do
---        fa <- lift $ ask
---        s' <- step fa a s
---        lift $ modify $ envUpdState (const s')
---        pure True
---  faAccepts f_n f_j = do
---    success <- faStep f_n f_j
---    if success
---      then faAccepts f_n f_j
---      else do
---        s <- lift $ gets envState
---        fa <- lift $ ask
---        pure $ s `S.member` accept fa
-
--- data FAEnv a s = FAEnv
---  { envConsumed :: [a],
---    envRest :: [a],
---    envState :: s
---  }
---
--- class MonadFA m t a s p where
---  faNext :: m (Maybe a)
---  faState :: m s
---  faStep :: (s -> t m ()) -> (s -> t m ()) -> t m ()
---
--- instance
---  ( Ord a,
---    Ord s,
---    MonadTrans t,
---    MonadPlus (t m),
---    MonadState (FAEnv a s) m,
---    MonadReader (FA (t m) a s p) m
---  ) =>
---  MonadFA m t a s p
---  where
---  faNext = do
---    rest <- gets envRest
---    case rest of
---      [] -> pure Nothing
---      (c : cs) -> do
---        modify (\env -> env {envRest = cs, envConsumed = envConsumed env ++ [c]})
---        pure $ Just c
---  faState = gets envState
---  faStep f_n f_j = do
---    ma <- lift $ faNext
---    s <- lift $ gets envState
---    case ma of
---      Nothing -> f_n s
---      Just a -> do
---        fa <- lift $ ask
---        s' <- step fa a s
---        lift $ modify (\env -> env {envState = s'})
---        pure ()
-
--- next :: FAM a s g (Maybe a)
--- next = do
---  rest <- gets envRest
---  case rest of
---    [] -> pure Nothing
---    (c : cs) -> do
---      modify (\env -> env {envRest = cs, envConsumed = envConsumed env ++ [c]})
---      pure $ Just c
---
----- stepM :: (MonadState z, MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> a -> s -> m s
--- stepM :: (MonadPlus m, Monad m, Ord a, Ord s) => (Maybe a -> s -> b -> m c) -> FAM a s g ()
--- stepM step_fun = do
---  a <- next
---  case a of
---    Nothing -> step
---
--- data FAEnv a s g = FAEnv
---  { envConsumed :: [a],
---    envRest :: [a],
---    envState :: s,
---    envMisc :: g
---  }
---
--- type FAM a s g = MonadState (FAEnv a s g)
-
--- next :: FAM a s g ->
-----  faNext = do
-----    rest <- gets envRest
-----    case rest of
-----      [] -> pure Nothing
-----      (c : cs) -> do
-----        modify (\env -> env {envRest = cs, envConsumed = envConsumed env ++ [c]})
-----        -- modify $ envUpdRest (const cs) . envUpdConsumed (++ [c])
-----        pure $ Just c
---
-----class MonadFA a s m where
-----  faNext :: m (Maybe a)
-----  faState :: m s
-----  faStep :: m b -> (Maybe a -> s -> b -> m c) -> m c
-----
-----instance (MonadState (FAEnv a s g) m) => MonadFA a s m where
-----  faNext = do
-----    rest <- gets envRest
-----    case rest of
-----      [] -> pure Nothing
-----      (c : cs) -> do
-----        modify (\env -> env {envRest = cs, envConsumed = envConsumed env ++ [c]})
-----        -- modify $ envUpdRest (const cs) . envUpdConsumed (++ [c])
-----        pure $ Just c
-----  faState = gets envState
-----  faStep mb f = do
-----    b <- mb
-----    a <- faNext
-----    s <- faState
-----    f a s b
---
---
---
-----stepM :: (MonadState z, MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> a -> s -> m s
--- stepM :: (MonadPlus m, Monad m, Ord a, Ord s) => (Maybe a -> s -> b -> m c) -> FAM a s g ()
--- stepM step_fun = do
---  <- gets envRest
---
---
---  do
---  s_e <- stepE fa s
---  s_e' <- F.int (delta fa) (a, s_e)
---  stepE fa s_e'
-
--- class FAEnv e where
---  envConsumed :: e -> [a]
---  envUpdConsumed :: ([a] -> [a]) -> e -> e
---  envRest :: e -> [a]
---  envUpdRest :: ([a] -> [a]) -> e -> e
---  envState :: e -> s
---  envUpdState :: (s -> s) -> e -> e
---
--- class MonadFA a s m where
---  next :: m (Maybe a)
---  state :: m s
---
--- instance (FAEnv e, MonadState e m) => MonadFA a s m where
---  next = do
---    rest <- gets envRest
---    case rest of
---      [] -> pure Nothing
---      (c : cs) -> do
---        modify $ envUpdRest (const cs) . envUpdConsumed (++ [c])
---        pure $ Just c
---  state = gets envState
-
---
--- class Monad m => FAM m k a s p where
---  next :: m (Maybe a)
---  state :: m (k s)
---  doStep :: (k s -> m z) -> a -> m z
---  getFA :: m (FA k a s p)
---  run :: (k s -> m z) -> [a] -> m [z]
---
--- instance (FAEnv e, MonadState e m, MonadPlus k, Ord a, Monad k, Ord s) => FAM m k a s p where
---  next = do
---    rest <- gets envRest
---    case rest of
---      [] -> pure Nothing
---      (c : cs) -> do
---        modify $ envUpdRest (const cs) . envUpdConsumed (++ [c])
---        pure $ Just c
---  state = gets envState
---  getFA = gets envFA
---  doStep f a = do
---    fa <- (getFA :: m (FA k a s p))
---    modify $ envUpdState (step fa a =<<)
---    gets envState >>= f
---  run f = mapM (doStep f)
+  run onStep accepts rejects = do
+    dfa <- ask
+    s <- gets envState
+    ma <- look
+    case ma of
+      Nothing ->
+        if s `S.member` accept dfa
+          then accepts
+          else rejects
+      Just a -> do
+        case step dfa a s of
+          Nothing ->
+            if s `S.member` accept dfa
+              then accepts
+              else rejects
+          Just s' -> do
+            next
+            modify $ \env -> env {envState = s'}
+            onStep a
+            run onStep accepts rejects
 
 lookupPayload :: Ord s => FA m a s p -> s -> p
 lookupPayload fa = (payloads fa M.!)
