@@ -336,7 +336,7 @@ digits :: [Char]
 digits = ['0' .. '9']
 
 letters :: [Char]
-letters = ['A' .. 'Z'] ++ ['a' .. 'z']
+letters = filter isLatin [minBound .. maxBound]
 
 -- letters = filter isLetter [minBound .. maxBound]
 
