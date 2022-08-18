@@ -3,8 +3,6 @@ module Lexer.Finite where
 import Control.Applicative
 import Control.Monad
 import Data.Bifunctor
-import qualified Data.Foldable
-import Data.List (nub)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Maybe

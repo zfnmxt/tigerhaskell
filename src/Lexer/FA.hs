@@ -1,10 +1,7 @@
 module Lexer.FA where
 
 import Control.Monad
-import Control.Monad.RWS
 import Data.Bifunctor
-import Data.Foldable
-import Data.List (sort)
 import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Set as S
@@ -53,6 +50,23 @@ intWithComp fa f cs s = do
     then pure s'
     else intWithComp fa f cs' s'
 
+greedyInt :: (Eq (m s), MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> [a] -> s -> m (s, [a])
+greedyInt fa [] s = do
+  s' <- stepE fa s
+  pure (s', [])
+greedyInt fa input@(a : as) s
+  | step fa a s == mzero =
+      pure (s, input)
+  | otherwise = do
+      s' <- step fa a s
+      greedyInt fa as s'
+
+greedyInt_ :: (Eq (m s), MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> [a] -> m (s, [a])
+greedyInt_ fa as = greedyInt fa as $ start fa
+
+greedyIntDFA_ :: (Ord a, Ord s) => DFA a s p -> [a] -> (s, [a])
+greedyIntDFA_ dfa as = fromMaybe (error "") $ greedyInt_ dfa as
+
 int :: (MonadPlus m, Monad m, Ord a, Ord s) => FA m a s p -> [a] -> s -> m s
 int fa [] s = stepE fa s
 int fa as s = foldM (flip $ step fa) s as
@@ -99,9 +113,9 @@ toDFA nfa = mapNodes (toEnum . (m M.!)) dfa
       | S.null todo = (seen, f)
       | otherwise =
           let (ss : rest) = S.toList todo
-              (f', todo') = construct todo f ss seen
+              (f', todo') = construct f ss seen
            in loop (ss `S.insert` seen) (todo' `S.union` S.fromList rest) f'
-    construct todo f ss seen =
+    construct f ss seen =
       foldl (fold_fun ss seen) (f, mempty) $ S.toList $ alphabet nfa
     fold_fun ss seen (f, todo) a =
       let e = dfaEdge nfa a ss
@@ -158,16 +172,16 @@ star nfa =
       F.fromList $ map (,start nfa) $ S.toList $ accept nfa
 
 renameFA :: (Functor m, Ord a, Ord s) => FA m a s p -> Int -> FA m a Int p
-renameFA fa start = mapNodes (m M.!) fa
+renameFA fa strt = mapNodes (m M.!) fa
   where
-    m = M.fromList $ zip (S.toList $ states fa) [start ..]
+    m = M.fromList $ zip (S.toList $ states fa) [strt ..]
 
 renameFAS :: (Functor m, Ord a, Ord s) => [FA m a s p] -> [FA m a Int p]
 renameFAS =
   fst
     . foldr
-      ( \fa (fas, start) ->
-          let fa' = renameFA fa start
+      ( \fa (fas, strt) ->
+          let fa' = renameFA fa strt
            in (fa' : fas, maximum (states fa') + 1)
       )
       ([], 1)
@@ -186,56 +200,3 @@ oneOf as =
 
 plus :: Ord a => NFA a Int String -> NFA a Int String
 plus nfa = nfa `Lexer.FA.concat` star nfa
-
--- For simulating automatons step-by-step
-data Env a s g = Env
-  { envConsumed :: [a],
-    envRest :: [a],
-    envState :: s,
-    envMisc :: g
-  }
-
-class MonadDFA m a s where
-  look :: m (Maybe a)
-  next :: m ()
-  run :: (a -> m ()) -> m b -> m b -> m b
-
-instance (Ord a, Ord s, MonadState (Env a s g) m, MonadReader (DFA a s p) m) => MonadDFA m a s where
-  look = do
-    rest <- gets envRest
-    case rest of
-      [] -> pure Nothing
-      (c : cs) -> do
-        pure $ Just c
-
-  next = do
-    mc <- look
-    case mc of
-      Nothing -> pure ()
-      Just c ->
-        modify $ \env ->
-          env
-            { envConsumed = envConsumed env ++ [c],
-              envRest = tail $ envRest env
-            }
-
-  run onStep accepts rejects = do
-    dfa <- ask
-    s <- gets envState
-    ma <- look
-    case ma of
-      Nothing ->
-        if s `S.member` accept dfa
-          then accepts
-          else rejects
-      Just a -> do
-        case step dfa a s of
-          Nothing ->
-            if s `S.member` accept dfa
-              then accepts
-              else rejects
-          Just s' -> do
-            next
-            modify $ \env -> env {envState = s'}
-            onStep a
-            run onStep accepts rejects

@@ -1,6 +1,5 @@
 module Lexer.Tokens where
 
-import qualified Data.Map as M
 import Prelude hiding (EQ, GT, LT)
 
 data Loc = Loc

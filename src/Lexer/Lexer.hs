@@ -8,14 +8,21 @@ import Data.Char
 import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Lexer.FA (Env (..), MonadDFA (..))
 import qualified Lexer.FA as FA
-import qualified Lexer.Finite as F
 import qualified Lexer.Regex as R
 import Lexer.Tokens
 import Lexer.Types hiding (DFA, NFA)
 import qualified Lexer.Types as T
 import Prelude hiding (EQ, GT, LT, lex)
+
+data Env a s = Env
+  { envConsumed :: [a],
+    envRest :: [a],
+    envState :: s,
+    envLoc :: Loc,
+    envCommentDepth :: Int,
+    envInString :: Bool
+  }
 
 type Label = String
 
@@ -27,25 +34,13 @@ type DFA = T.DFA Char Int EdgeLabel
 
 type NFA = T.NFA Char Int EdgeLabel
 
-type NodeEnv = Env Char Int Loc
-
-type NodeM = RWST DFA () NodeEnv (Either String)
-
 data Node = Node
   { nodeLabel :: Label,
     nodeDFA :: DFA,
     nodeActions :: ActionMap
   }
 
-data LexEnvMisc = LexEnvMisc
-  { lexLoc :: Loc,
-    lexCommentDepth :: Int,
-    lexInString :: Bool
-  }
-
-type LexEnv = Env Char Label LexEnvMisc
-
-type LexM = RWST Lexer [Token] LexEnv (Either String)
+type LexM = RWST Lexer [Token] (Env Char Label) (Either String)
 
 newtype Action = Action {runAction :: String -> Loc -> LexM [Token]}
 
@@ -53,21 +48,10 @@ type ActionMap = M.Map EdgeLabel Action
 
 type Lexer = T.DFA EdgeLabel Label (DFA, ActionMap)
 
-modifyMisc :: (Monoid w, Monad m) => (g -> g) -> RWST r w (Env a s g) m ()
-modifyMisc f = modify $ \env -> env {envMisc = f $ envMisc env}
-
-getsMisc :: (Monoid w, Monad m) => (g -> h) -> RWST r w (Env a s g) m h
-getsMisc f = gets (f . envMisc)
-
 lexError :: String -> LexM a
 lexError msg = do
-  loc <- getsMisc lexLoc
-  throwError $ "Lexing error:" <> show loc <> ": " <> msg
-
-nodeError :: String -> NodeM a
-nodeError msg = do
-  loc <- gets envMisc
-  throwError $ "Lexing error:" <> show loc <> ": " <> msg
+  l <- gets envLoc
+  throwError $ "Lexing error:" <> show l <> ": " <> msg
 
 lex :: String -> Either String [Token]
 lex = fmap snd . evalLexM runLexer
@@ -79,20 +63,16 @@ evalLexM m s =
       { envConsumed = mempty,
         envRest = s,
         envState = start lexer,
-        envMisc =
-          LexEnvMisc
-            { lexLoc = mempty,
-              lexCommentDepth = 0,
-              lexInString = False
-            }
+        envLoc = mempty,
+        envCommentDepth = 0,
+        envInString = False
       }
 
 runLexer :: LexM ()
 runLexer = do
-  Env _ rest label (LexEnvMisc loc commentDepth inString) <- get
+  Env _ rest label l commentDepth inString <- get
   case rest of
     "" -> do
-      env <- get
       unless (commentDepth == 0) $
         lexError $
           "Unclosed comment: " ++ show commentDepth
@@ -100,27 +80,23 @@ runLexer = do
       when inString $
         lexError "Unclosed string."
 
-      tell [Token EOF loc]
-    as -> do
-      let (dfa, actions) = lexer `FA.lookupPayload` label
-          nEnv =
-            Env
-              { envConsumed = mempty,
-                envRest = rest,
-                envState = start dfa,
-                envMisc = loc
-              }
-      (edgeLabel, nEnv') <- lift $ runNodeM runNode dfa nEnv
+      tell [Token EOF l]
+    _ -> do
+      let (dfa, _) = lexer `FA.lookupPayload` label
+          (s, rest') = FA.greedyIntDFA_ dfa rest
+          edgeLabel = dfa `FA.lookupPayload` s
+          consumed = take (length rest - length rest') rest
+          l' = foldl (flip updateLoc) l consumed
       action <- lookupAction edgeLabel
-      token <- runAction action (envConsumed nEnv') loc
-      tell token
+      t <- runAction action consumed l
+      tell t
       modify
         ( \env' ->
-            envUpdLoc (const $ envLoc nEnv') $
-              env'
-                { envConsumed = envConsumed env' ++ envConsumed nEnv',
-                  envRest = envRest nEnv'
-                }
+            env'
+              { envConsumed = envConsumed env' ++ consumed,
+                envRest = rest',
+                envLoc = l'
+              }
         )
       runLexer
 
@@ -144,24 +120,11 @@ lexer =
         stringNode
       ]
 
-runNodeM :: NodeM a -> DFA -> NodeEnv -> Either String (a, NodeEnv)
-runNodeM m dfa nenv = do
-  (a, s, _) <- runRWST m dfa nenv
-  pure (a, s)
-
-runNode :: NodeM EdgeLabel
-runNode = FA.run onStep accept reject
-  where
-    onStep c = modify $ envUpdLoc $ updateLoc c
-    accept = lookupEdge
-    reject = nodeError "No lex."
-
 mkEdge ::
-  Label ->
   Priority ->
   (Label, T.NFA Char Int Label, Action) ->
   (NFA, ActionMap)
-mkEdge label priority (edgeLabel, nfa, action) =
+mkEdge priority (edgeLabel, nfa, action) =
   (nfa {payloads = payloads'}, actions)
   where
     payloads' =
@@ -172,7 +135,7 @@ mkEdge label priority (edgeLabel, nfa, action) =
     actions = M.singleton (priority, edgeLabel) action
 
 mkNode :: Label -> [(Label, T.NFA Char Int Label, Action)] -> Node
-mkNode label = squash . zipWith (mkEdge label) [0 ..]
+mkNode label = squash . zipWith mkEdge [0 ..]
   where
     squash edges =
       let (nfas, ms) = unzip edges
@@ -181,12 +144,6 @@ mkNode label = squash . zipWith (mkEdge label) [0 ..]
               nodeDFA = FA.toDFA $ FA.unions nfas,
               nodeActions = mconcat ms
             }
-
-lookupEdge :: NodeM EdgeLabel
-lookupEdge = do
-  dfa <- ask
-  state <- gets envState
-  pure $ dfa `FA.lookupPayload` state
 
 lookupAction :: EdgeLabel -> LexM Action
 lookupAction edgeLabel = do
@@ -216,9 +173,8 @@ stringNode =
       )
     ]
   where
-    end_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexInString = False}
-      modify $ \env -> env {envState = "START"}
+    end_action = Action $ \_ _ -> do
+      modify $ \env -> env {envState = "START", envInString = False}
       pure mempty
 
 commentNode :: Node
@@ -237,21 +193,16 @@ commentNode =
       )
     ]
   where
-    end_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc - 1}
-      commentDepth <- getsMisc lexCommentDepth
+    end_action = Action $ \_ _ -> do
+      commentDepth <- (\x -> x - 1) <$> gets envCommentDepth
       when (commentDepth < 0) $
         lexError "Missing /*"
       let s'
             | commentDepth > 0 = "COMMENT"
             | otherwise = "START"
-      modify $ \env -> env {envState = s'}
+      modify $ \env -> env {envState = s', envCommentDepth = commentDepth}
       pure mempty
     start_action = undefined
-
--- Action $ \s l -> do
--- modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
--- pure mempty
 
 startNode :: Node
 startNode =
@@ -310,34 +261,20 @@ startNode =
            ("whitespace", FA.star $ FA.oneOf whitespace, Action $ (const . const) (pure mempty))
          ]
   where
-    comment_start_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
-      modify $ \env -> env {envState = "COMMENT"}
+    comment_start_action = Action $ \_ _ -> do
+      modify $ \env -> env {envState = "COMMENT", envCommentDepth = envCommentDepth env + 1}
       pure mempty
-    string_start_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexInString = True}
-      modify $ \env -> env {envState = "STRING"}
+    string_start_action = Action $ \_ _ -> do
+      modify $ \env -> env {envState = "STRING", envInString = True}
       pure mempty
-
-class EnvLoc a where
-  envLoc :: a -> Loc
-  envUpdLoc :: (Loc -> Loc) -> a -> a
-
-instance EnvLoc NodeEnv where
-  envLoc = envMisc
-  envUpdLoc f env = env {envMisc = f $ envLoc env}
-
-instance EnvLoc LexEnv where
-  envLoc = lexLoc . envMisc
-  envUpdLoc f env = env {envMisc = (envMisc env) {lexLoc = f $ envLoc env}}
 
 updateLoc :: Char -> Loc -> Loc
-updateLoc '\n' loc =
+updateLoc '\n' l =
   Loc
-    { locLine = locLine loc + 1,
+    { locLine = locLine l + 1,
       locCol = 0
     }
-updateLoc _ loc = loc {locCol = locCol loc + 1}
+updateLoc _ l = l {locCol = locCol l + 1}
 
 whitespace :: [Char]
 whitespace = filter isSpace [minBound .. maxBound]

@@ -1,0 +1,44 @@
+cabal-version:      2.4
+name:               tigerhaskell
+version:            0.1.0.0
+author:             zfnmxt
+maintainer:         zfnmxt@zfnmxt.com
+extra-source-files: CHANGELOG.md
+
+library
+  exposed-modules:    Lexer.Lexer
+  other-modules:
+    Lexer.FA
+    Lexer.Finite
+    Lexer.Regex
+    Lexer.Tokens
+    Lexer.Types
+
+  build-depends:
+    , base
+    , containers
+    , directory
+    , mtl
+    , transformers
+
+  hs-source-dirs:     src
+  default-language:   Haskell2010
+  ghc-options:        -Wall
+  default-extensions: TupleSections
+
+test-suite lexer-tests
+  type:               exitcode-stdio-1.0
+  main-is:            Driver.hs
+  ghc-options:        -Wall
+  build-depends:
+    , base
+    , directory
+    , tasty
+    , tasty-hunit
+    , tigerhaskell
+
+  build-tool-depends: tasty-discover:tasty-discover
+  hs-source-dirs:     test
+  other-modules:
+    Lexer
+    Util
