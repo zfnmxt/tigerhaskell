@@ -87,6 +87,10 @@ runLexer = do
           edgeLabel = dfa `FA.lookupPayload` s
           consumed = take (length rest - length rest') rest
           l' = foldl (flip updateLoc) l consumed
+
+      when (rest' == rest) $
+        lexError "Lex error."
+
       action <- lookupAction edgeLabel
       t <- runAction action consumed l
       tell t
