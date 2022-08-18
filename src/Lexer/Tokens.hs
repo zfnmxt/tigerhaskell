@@ -16,7 +16,7 @@ instance Semigroup Loc where
   (Loc l1 c1) <> (Loc l2 c2) = Loc (l1 + l2) (c1 + c2)
 
 instance Monoid Loc where
-  mempty = Loc 0 0
+  mempty = Loc 1 1
 
 class Located a where
   loc :: a -> Loc

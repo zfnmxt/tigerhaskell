@@ -94,7 +94,8 @@ runLexer = do
     "" -> do
       env <- get
       unless (commentDepth == 0) $
-        lexError "Unclosed comment."
+        lexError $
+          "Unclosed comment: " ++ show commentDepth
 
       when inString $
         lexError "Unclosed string."
@@ -226,7 +227,14 @@ commentNode =
     "COMMENT"
     [ ("*/", R.toNFA $ R.lit "*/", end_action),
       ("/*", R.toNFA $ R.lit "/*", start_action),
-      (".", FA.plus $ FA.oneOf lexerAlphabet, Action $ (const . const) (pure mempty))
+      ( ".",
+        FA.star
+          ( FA.oneOf
+              (L.delete '*' lexerAlphabet)
+          )
+          `FA.union` R.toNFA (Sym '*'),
+        Action $ (const . const) (pure mempty)
+      )
     ]
   where
     end_action = Action $ \s l -> do
@@ -239,9 +247,11 @@ commentNode =
             | otherwise = "START"
       modify $ \env -> env {envState = s'}
       pure mempty
-    start_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
-      pure mempty
+    start_action = undefined
+
+-- Action $ \s l -> do
+-- modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
+-- pure mempty
 
 startNode :: Node
 startNode =
@@ -292,7 +302,7 @@ startNode =
       ]
       ++ [ ("int", FA.plus $ FA.oneOf digits, Action $ \s l -> pure [Token (INT $ read s) l]),
            ( "id",
-             FA.oneOf letters `FA.concat` FA.plus (FA.oneOf $ concat [letters, digits, "_"]),
+             FA.oneOf letters `FA.concat` FA.star (FA.oneOf $ concat [letters, digits, "_"]),
              Action $ \s l -> pure [Token (ID s) l]
            ),
            ("/*", R.toNFA $ R.lit "/*", comment_start_action),
@@ -336,16 +346,14 @@ digits :: [Char]
 digits = ['0' .. '9']
 
 letters :: [Char]
-letters = filter isLatin [minBound .. maxBound]
+letters = filter (\c -> isLatin1 c && isLetter c) [minBound .. maxBound]
 
 -- letters = filter isLetter [minBound .. maxBound]
 
 printable :: [Char]
-printable = letters ++ digits
+printable = filter isLatin1 [minBound .. maxBound] ++ digits
 
 -- printable = filter isPrint [minBound .. maxBound]
 
 lexerAlphabet :: [Char]
 lexerAlphabet = printable ++ whitespace
-
--- lexerAlphabet = filter (\c -> isPrint c || isSpace c) [minBound .. maxBound]
