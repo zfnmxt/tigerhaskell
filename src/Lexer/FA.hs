@@ -3,7 +3,6 @@
 module Lexer.FA where
 
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Bifunctor
 import Data.Foldable
@@ -223,7 +222,7 @@ renameFAS =
     . foldr
       ( \fa (fas, start) ->
           let fa' = renameFA fa start
-           in (fa' : fas, (maximum $ states fa') + 1)
+           in (fa' : fas, maximum (states fa') + 1)
       )
       ([], 1)
 

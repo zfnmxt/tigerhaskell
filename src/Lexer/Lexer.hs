@@ -1,17 +1,13 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TupleSections #-}
 
 module Lexer.Lexer where
 
 import Control.Monad.Except
 import Control.Monad.RWS
-import Control.Monad.Trans.Maybe
 import Data.Char
-import Data.List (nub)
 import qualified Data.List as L
 import qualified Data.Map as M
-import Data.Maybe
 import qualified Data.Set as S
-import Debug.Trace
 import Lexer.FA (Env (..), MonadDFA (..))
 import qualified Lexer.FA as FA
 import qualified Lexer.Finite as F
@@ -169,7 +165,7 @@ mkEdge label priority (edgeLabel, nfa, action) =
   where
     payloads' =
       M.fromList $
-        map (\s -> (s, (priority, edgeLabel))) $
+        map (,(priority, edgeLabel)) $
           S.toList $
             accept nfa
     actions = M.singleton (priority, edgeLabel) action
@@ -197,6 +193,121 @@ lookupAction edgeLabel = do
   label <- gets envState
   let (_, actions) = dfa `FA.lookupPayload` label
   pure $ actions M.! edgeLabel
+
+stringNode :: Node
+stringNode =
+  mkNode
+    "STRING"
+    [ ("\"", R.toNFA $ Sym '\"', end_action),
+      ( "body",
+        FA.plus $
+          FA.oneOf (' ' : (printable L.\\ ['\\', '\"']))
+            `FA.union` R.toNFA
+              ( Sym '\\'
+                  ::: R.unions
+                    ( [ R.plus (R.oneOf [' ', '\t', '\n', '\f'] ::: Sym '\\'),
+                        Sym '^' ::: R.oneOf ['A' .. 'Z']
+                      ]
+                        ++ map R.lit ["n", "t", "ddd", "\"", "\\"]
+                    )
+              ),
+        Action $ \s l -> pure [Token (STRING $ read $ "\"" ++ s ++ "\"") l]
+      )
+    ]
+  where
+    end_action = Action $ \s l -> do
+      modifyMisc $ \lexMisc -> lexMisc {lexInString = False}
+      modify $ \env -> env {envState = "START"}
+      pure mempty
+
+commentNode :: Node
+commentNode =
+  mkNode
+    "COMMENT"
+    [ ("*/", R.toNFA $ R.lit "*/", end_action),
+      ("/*", R.toNFA $ R.lit "/*", start_action),
+      (".", FA.plus $ FA.oneOf lexerAlphabet, Action $ (const . const) (pure mempty))
+    ]
+  where
+    end_action = Action $ \s l -> do
+      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc - 1}
+      commentDepth <- getsMisc lexCommentDepth
+      when (commentDepth < 0) $
+        lexError "Missing /*"
+      let s'
+            | commentDepth > 0 = "COMMENT"
+            | otherwise = "START"
+      modify $ \env -> env {envState = s'}
+      pure mempty
+    start_action = Action $ \s l -> do
+      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
+      pure mempty
+
+startNode :: Node
+startNode =
+  mkNode
+    "START"
+    $ map
+      (\(bt, s) -> (show bt, R.toNFA $ R.lit s, Action $ \_ l -> pure [Token bt l]))
+      [ (TYPE, "type"),
+        (VAR, "var"),
+        (FUNCTION, "function"),
+        (BREAK, "break"),
+        (OF, "of"),
+        (END, "end"),
+        (IN, "in"),
+        (NIL, "nil"),
+        (LET, "let"),
+        (DO, "do"),
+        (TO, "to"),
+        (FOR, "for"),
+        (WHILE, "while"),
+        (ELSE, "else"),
+        (THEN, "then"),
+        (IF, "if"),
+        (ARRAY, "array"),
+        (ASSIGN, ":="),
+        (OR, "|"),
+        (AND, "&"),
+        (GE, ">="),
+        (GT, ">"),
+        (LE, "<="),
+        (LT, "<"),
+        (NEQ, "<>"),
+        (EQ, "="),
+        (DIVIDE, "/"),
+        (TIMES, "*"),
+        (MINUS, "-"),
+        (PLUS, "+"),
+        (DOT, "."),
+        (RBRACE, "}"),
+        (LBRACE, "{"),
+        (RBRACK, "]"),
+        (LBRACK, "["),
+        (RPAREN, ")"),
+        (LPAREN, "("),
+        (SEMICOLON, ";"),
+        (COLON, ":"),
+        (COMMA, ",")
+      ]
+      ++ [ ("int", FA.plus $ FA.oneOf digits, Action $ \s l -> pure [Token (INT $ read s) l]),
+           ( "id",
+             FA.oneOf letters `FA.concat` FA.plus (FA.oneOf $ concat [letters, digits, "_"]),
+             Action $ \s l -> pure [Token (ID s) l]
+           ),
+           ("/*", R.toNFA $ R.lit "/*", comment_start_action),
+           ("\"", R.toNFA $ Sym '\"', string_start_action),
+           ("whitespace", FA.star $ FA.oneOf whitespace, Action $ (const . const) (pure mempty))
+         ]
+  where
+    comment_start_action = Action $ \s l -> do
+      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
+      modify $ \env -> env {envState = "COMMENT"}
+      pure mempty
+    string_start_action = Action $ \s l -> do
+      modifyMisc $ \lexMisc -> lexMisc {lexInString = True}
+      modify $ \env -> env {envState = "STRING"}
+      pure mempty
 
 class EnvLoc a where
   envLoc :: a -> Loc
@@ -238,119 +349,3 @@ lexerAlphabet :: [Char]
 lexerAlphabet = printable ++ whitespace
 
 -- lexerAlphabet = filter (\c -> isPrint c || isSpace c) [minBound .. maxBound]
-
-stringNode :: Node
-stringNode =
-  mkNode
-    "STRING"
-    [ ("\"", R.toNFA $ Sym '\"', end_action),
-      ( "body",
-        FA.plus $
-          FA.oneOf (' ' : (printable L.\\ ['\\', '\"']))
-            `FA.union` R.toNFA
-              ( Sym '\\'
-                  ::: R.unions
-                    ( [ R.plus (R.oneOf [' ', '\t', '\n', '\f'] ::: Sym '\\'),
-                        (Sym '^' ::: R.oneOf ['A' .. 'Z'])
-                      ]
-                        ++ map R.lit ["n", "t", "ddd", "\"", "\\"]
-                    )
-              ),
-        Action $ \s l -> pure [Token (STRING $ read $ "\"" ++ s ++ "\"") l]
-      )
-    ]
-  where
-    end_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexInString = False}
-      modify $ \env -> env {envState = "START"}
-      pure mempty
-
-commentNode :: Node
-commentNode =
-  mkNode
-    "COMMENT"
-    [ ("*/", R.toNFA $ R.lit "*/", end_action),
-      ("/*", R.toNFA $ R.lit "/*", start_action),
-      (".", FA.plus $ FA.oneOf lexerAlphabet, Action $ (const . const) (pure mempty))
-    ]
-  where
-    end_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc - 1}
-      commentDepth <- getsMisc lexCommentDepth
-      when (commentDepth < 0) $
-        lexError "Missing /*"
-      let s'
-            | commentDepth > 0 = "COMMENT"
-            | otherwise = "START"
-      modify $ \env -> env {envState = s'}
-      pure mempty
-    start_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
-      pure mempty
-
-startNode :: Node
-startNode =
-  mkNode
-    "START"
-    $ ( map
-          (\(bt, s) -> (show bt, R.toNFA $ R.lit s, Action $ \_ l -> pure [Token bt l]))
-          [ (TYPE, "type"),
-            (VAR, "var"),
-            (FUNCTION, "function"),
-            (BREAK, "break"),
-            (OF, "of"),
-            (END, "end"),
-            (IN, "in"),
-            (NIL, "nil"),
-            (LET, "let"),
-            (DO, "do"),
-            (TO, "to"),
-            (FOR, "for"),
-            (WHILE, "while"),
-            (ELSE, "else"),
-            (THEN, "then"),
-            (IF, "if"),
-            (ARRAY, "array"),
-            (ASSIGN, ":="),
-            (OR, "|"),
-            (AND, "&"),
-            (GE, ">="),
-            (GT, ">"),
-            (LE, "<="),
-            (LT, "<"),
-            (NEQ, "<>"),
-            (EQ, "="),
-            (DIVIDE, "/"),
-            (TIMES, "*"),
-            (MINUS, "-"),
-            (PLUS, "+"),
-            (DOT, "."),
-            (RBRACE, "}"),
-            (LBRACE, "{"),
-            (RBRACK, "]"),
-            (LBRACK, "["),
-            (RPAREN, ")"),
-            (LPAREN, "("),
-            (SEMICOLON, ";"),
-            (COLON, ":"),
-            (COMMA, ",")
-          ]
-      )
-      ++ [ ("int", FA.plus $ FA.oneOf digits, Action $ \s l -> pure [Token (INT $ read s) l]),
-           ( "id",
-             FA.oneOf letters `FA.concat` FA.plus (FA.oneOf $ concat [letters, digits, "_"]),
-             Action $ \s l -> pure [Token (ID s) l]
-           ),
-           ("/*", R.toNFA $ R.lit "/*", comment_start_action),
-           ("\"", R.toNFA $ Sym '\"', string_start_action),
-           ("whitespace", FA.star $ FA.oneOf whitespace, Action $ (const . const) (pure mempty))
-         ]
-  where
-    comment_start_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexCommentDepth = lexCommentDepth lexMisc + 1}
-      modify $ \env -> env {envState = "COMMENT"}
-      pure mempty
-    string_start_action = Action $ \s l -> do
-      modifyMisc $ \lexMisc -> lexMisc {lexInString = True}
-      modify $ \env -> env {envState = "STRING"}
-      pure mempty

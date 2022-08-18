@@ -56,3 +56,13 @@ library
       FlexibleContexts
       MultiParamTypeClasses
       AllowAmbiguousTypes
+
+Test-Suite lexer-tests
+  type:                 exitcode-stdio-1.0
+  main-is:              Driver.hs
+  ghc-options:          -Wall
+  build-depends:        base, tasty, tasty-hunit
+  build-tool-depends:   tasty-discover:tasty-discover
+  hs-source-dirs:       test
+  other-modules:
+    Lexer
