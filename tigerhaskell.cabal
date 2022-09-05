@@ -14,6 +14,10 @@ library
     Lexer.Regex
     Lexer.Tokens
     Lexer.Types
+    Parser.Parser
+    Parser.Types
+    Parser.Grammar
+    Util
   other-modules:
 
   build-depends:
@@ -28,13 +32,14 @@ library
   ghc-options:        -Wall
   default-extensions: TupleSections
 
-test-suite lexer-tests
+test-suite tests
   type:               exitcode-stdio-1.0
   main-is:            Driver.hs
   ghc-options:        -Wall
   build-depends:
     , base
     , directory
+    , containers
     , tasty
     , tasty-hunit
     , tigerhaskell
@@ -43,4 +48,5 @@ test-suite lexer-tests
   hs-source-dirs:     test
   other-modules:
     Lexer
+    Parser
     Util
