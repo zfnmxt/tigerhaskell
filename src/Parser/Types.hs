@@ -1,8 +1,6 @@
 module Parser.Types where
 
-import Data.Map (Map)
-
-data Symbol a = T a | N a deriving (Eq, Ord, Show)
+data Symbol a = N Char | T a deriving (Eq, Ord, Show)
 
 type Rule a = (Symbol a, [Symbol a])
 
