@@ -9,45 +9,42 @@ module AST
   )
 where
 
-import Data.Loc
-
-newtype Symbol = Symbol String
-  deriving (Show, Eq, Ord)
+import Text.Megaparsec.Pos
 
 data Var
-  = SimpleVar Symbol SrcLoc
-  | FieldVar Var Symbol SrcLoc
-  | SubscriptVar Var Exp SrcLoc
+  = SimpleVar String SourcePos
+  | FieldVar Var String SourcePos
+  | SubscriptVar Var Exp SourcePos
   deriving (Show, Eq, Ord)
 
 data Exp
   = VarExp Var
   | NilExp
-  | IntExp Integer SrcLoc
-  | StringExp String SrcLoc
-  | CallExp Symbol [Exp] SrcLoc
-  | OpExp Exp Oper Exp SrcLoc
-  | RecordExp [(Symbol, Exp, SrcLoc)] Symbol SrcLoc
-  | SeqExp [(Exp, SrcLoc)]
-  | AssignExp Var Exp SrcLoc
-  | IfExp Exp Exp (Maybe Exp) SrcLoc
-  | WhileExp Exp Exp SrcLoc
-  | ForExp Symbol Bool Exp Exp Exp SrcLoc
-  | BreakExp SrcLoc
-  | LetExp [Dec] Exp SrcLoc
-  | ArrayExp Symbol Exp Exp SrcLoc
+  | IntExp Integer SourcePos
+  | StringExp String SourcePos
+  | CallExp String [Exp] SourcePos
+  | OpExp Exp Oper Exp SourcePos
+  | RecordExp [(String, Exp, SourcePos)] String SourcePos
+  | SeqExp [(Exp, SourcePos)]
+  | AssignExp Var Exp SourcePos
+  | IfExp Exp Exp (Maybe Exp) SourcePos
+  | WhileExp Exp Exp SourcePos
+  | ForExp String Exp Exp Exp SourcePos
+  | BreakExp SourcePos
+  | LetExp [Dec] Exp SourcePos
+  | ArrayExp String Exp Exp SourcePos
   deriving (Show, Eq, Ord)
 
 data Dec
-  = FunctionDec [FunDec]
-  | VarDec Symbol Bool (Maybe (Symbol, SrcLoc)) Exp SrcLoc
-  | TypeDec [(Symbol, Ty, SrcLoc)]
+  = FunctionDec FunDec
+  | VarDec String (Maybe (String, SourcePos)) Exp SourcePos
+  | TypeDec (String, Ty, SourcePos)
   deriving (Show, Eq, Ord)
 
 data Ty
-  = NameTy Symbol SrcLoc
+  = NameTy String SourcePos
   | RecordTy [Field]
-  | ArrayTy Symbol SrcLoc
+  | ArrayTy String SourcePos
   deriving (Show, Eq, Ord)
 
 data Oper
@@ -64,13 +61,13 @@ data Oper
   deriving (Show, Eq, Ord)
 
 data FunDec = FunDec
-  { funName :: Symbol,
+  { funName :: String,
     funParams :: [Field],
-    funResult :: Maybe (Symbol, SrcLoc),
+    funResult :: Maybe (String, SourcePos),
     funBody :: Exp,
-    funLoc :: SrcLoc
+    funLoc :: SourcePos
   }
   deriving (Show, Eq, Ord)
 
-data Field = Field Symbol Bool Symbol SrcLoc
+data Field = Field String String SourcePos
   deriving (Show, Eq, Ord)
