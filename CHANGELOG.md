@@ -1,4 +1,4 @@
-# Revision history for TigerHaskell
+# Revision history for tigerhaskell
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

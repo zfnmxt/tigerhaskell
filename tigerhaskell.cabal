@@ -1,52 +1,52 @@
-cabal-version:      2.4
+cabal-version:      3.4
 name:               tigerhaskell
 version:            0.1.0.0
+
+license:            BSD-3-Clause
+license-file:       LICENSE
 author:             zfnmxt
 maintainer:         zfnmxt@zfnmxt.com
-extra-source-files: CHANGELOG.md
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+
+
+common common
+  ghc-options: -Wall -Wcompat -Wno-incomplete-uni-patterns -Wno-x-partial -Wno-unrecognised-warning-flags  -Wredundant-constraints -Wincomplete-record-updates -Wmissing-export-lists -Wunused-packages
+
+  default-extensions:
+   OverloadedStrings
 
 library
-  exposed-modules:
-    Lexer
-    Lexer.Lexer
-    Lexer.FA
-    Lexer.Finite
-    Lexer.Regex
-    Lexer.Tokens
-    Lexer.Types
-    Parser.Parser
-    Parser.Types
-    Parser.Grammar
-    Util
-  other-modules:
+        import:           common
+        exposed-modules:
+          AST
+          Parser
 
-  build-depends:
-    , base
-    , containers
-    , directory
-    , mtl
-    , transformers
+        build-depends:
+          base,
+          srcloc,
+          megaparsec,
+          text
 
-  hs-source-dirs:     src
-  default-language:   Haskell2010
-  ghc-options:        -Wall
-  default-extensions: TupleSections
+        hs-source-dirs:   src
+        default-language: GHC2021
 
-test-suite tests
-  type:               exitcode-stdio-1.0
-  main-is:            Driver.hs
-  ghc-options:        -Wall
-  build-depends:
-    , base
-    , directory
-    , containers
-    , tasty
-    , tasty-hunit
-    , tigerhaskell
+executable tigerhaskell
+        import:           common
+        main-is:          Main.hs
+        build-depends:
+          base,
+          tigerhaskell
 
-  build-tool-depends: tasty-discover:tasty-discover
-  hs-source-dirs:     test
-  other-modules:
-    Lexer
-    Parser
-    Util
+        hs-source-dirs:   app
+        default-language: GHC2021
+
+test-suite tigerhaskell-test
+        import:           common
+        default-language: GHC2021
+        type:             exitcode-stdio-1.0
+        hs-source-dirs:   test
+        main-is:          Main.hs
+        build-depends:
+         base,
+         tigerhaskell
