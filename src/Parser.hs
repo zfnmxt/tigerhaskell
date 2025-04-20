@@ -2,15 +2,18 @@ module Parser where
 
 import AST
 import Control.Applicative ((<*))
-import Control.Monad (void)
-import Data.Char (isAlpha, isAlphaNum, isDigit)
+import Control.Monad (guard, void, when)
+import Data.Char (chr, isAlpha, isAlphaNum, isDigit, ord)
 import Data.Void (Void)
 import Text.Megaparsec
   ( Parsec,
+    ShowErrorComponent (..),
     SourcePos,
     anySingle,
+    between,
     choice,
     chunk,
+    customFailure,
     empty,
     eof,
     errorBundlePretty,
@@ -19,6 +22,7 @@ import Text.Megaparsec
     notFollowedBy,
     option,
     parse,
+    parseError,
     satisfy,
     sepBy1,
     some,
@@ -26,9 +30,71 @@ import Text.Megaparsec
     (<|>),
   )
 import Text.Megaparsec.Byte.Lexer qualified as L
-import Text.Megaparsec.Char (space, space1)
+import Text.Megaparsec.Char
+  ( alphaNumChar,
+    char,
+    digitChar,
+    printChar,
+    space,
+    space1,
+    string,
+  )
 
-type Parser = Parsec Void String
+type Parser = Parsec Error String
+
+data Error
+  = NotKeyword String
+  | InvalidASCII Integer
+  deriving (Eq, Show, Ord)
+
+instance ShowErrorComponent Error where
+  showErrorComponent (NotKeyword s) = "not a keyword: " <> s
+  showErrorComponent (InvalidASCII i) = "invalid ASCII character code: " <> show i
+
+lId :: Parser String
+lId = lexeme $ try $ do
+  c <- satisfy isAlpha
+  cs <- many $ satisfy $ \c' -> isAlphaNum c' || c' == '_'
+  pure $ c : cs
+
+lInteger :: Parser Integer
+lInteger =
+  lexeme $ read <$> some digitChar <* notFollowedBy alphaNumChar
+
+lString :: Parser String
+lString =
+  lexeme $ char '"' *> munch
+  where
+    munch =
+      choice
+        [ try format *> munch,
+          do
+            next <- printChar
+            case next of
+              '"' -> pure mempty
+              '\\' -> (:) <$> escape <*> munch
+              _ -> (next :) <$> munch
+        ]
+    escape =
+      choice
+        [ char 'n' *> pure '\n',
+          char 't' *> pure '\t',
+          char '^' *> control,
+          ascii,
+          char '"',
+          char '\\'
+        ]
+    control =
+      chr . (flip (-) (ord 'A')) . ord
+        <$> satisfy (`elem` ['A' .. 'Z'])
+    ascii = do
+      ddd <- many digitChar
+      when (length ddd /= 3) $
+        customFailure $
+          InvalidASCII $
+            read ddd
+      pure $ chr $ read ddd
+    format = between (char '\\') (char '\\') space
 
 spaceConsumer :: Parser ()
 spaceConsumer =
@@ -70,69 +136,112 @@ keywords =
     "nil"
   ]
 
-lId :: Parser String
-lId = lexeme $ try $ do
-  c <- satisfy isAlpha
-  cs <- many $ satisfy $ \c' -> isAlphaNum c' || c' == '_'
-  pure $ c : cs
+pKeyword :: String -> Parser ()
+pKeyword s
+  | s `elem` keywords =
+      void $ try (symbol s) <* notFollowedBy (satisfy isAlphaNum)
+  | otherwise = customFailure $ NotKeyword s
 
 pTyId :: Parser (String, SourcePos)
-pTyId = (,) <$> lId <*> getSourcePos
+pTyId = do
+  pos <- getSourcePos
+  (,) <$> lId <*> pure pos
 
 pTyAnnot :: Parser (Maybe (String, SourcePos))
 pTyAnnot = option Nothing $ Just <$> (symbol ":" >> pTyId)
 
 pField :: Parser Field
-pField = Field <$> lId <* symbol ":" <*> lId <*> getSourcePos
+pField = do
+  pos <- getSourcePos
+  Field <$> lId <* symbol ":" <*> lId <*> pure pos
 
 pFields :: Parser [Field]
 pFields = sepBy1 pField (symbol ",")
 
 pDec :: Parser Dec
-pDec = (FunctionDec <$> pFunDec) <|> pVarDec <|> pTypeDec
+pDec =
+  choice
+    [ FunctionDec <$> pFunDec,
+      pVarDec,
+      pTypeDec
+    ]
   where
     pVarDec = do
-      symbol "var"
+      pos <- getSourcePos
+      pKeyword "var"
       id <- lId
       type_id <- pTyAnnot
       symbol ":="
       exp <- pExp
-      VarDec id type_id exp <$> getSourcePos
+      pure $ VarDec id type_id exp pos
 
     pTypeDec = do
-      symbol "type"
+      pos <- getSourcePos
+      pKeyword "type"
       type_id <- lId
       symbol "="
       ty <- pTy
-      pos <- getSourcePos
       pure $ TypeDec (type_id, ty, pos)
 
 pFunDec :: Parser FunDec
 pFunDec = do
-  symbol "function"
-  FunDec <$> lId <*> pFields <*> pTyAnnot <*> pExp <*> getSourcePos
+  pKeyword "function"
+  pos <- getSourcePos
+  FunDec <$> lId <*> pFields <*> pTyAnnot <*> pExp <*> pure pos
 
 pTy :: Parser Ty
-pTy = undefined
+pTy =
+  choice
+    [ pNameTy,
+      pRecordTy,
+      pArrayTy
+    ]
+  where
+    pNameTy = uncurry NameTy <$> pTyId
+    pRecordTy =
+      RecordTy
+        <$> between
+          (symbol "{")
+          (symbol "}")
+          ( let pTyField = do
+                  id <- lId
+                  symbol ":"
+                  (type_id, pos) <- pTyId
+                  pure $ Field id type_id pos
+             in pTyField `sepBy1` symbol ","
+          )
+    pArrayTy =
+      uncurry ArrayTy <$> (pKeyword "array" *> pKeyword "of" *> pTyId)
 
 pExp :: Parser Exp
-pExp = undefined
+pExp = do
+  pos <- getSourcePos
+  choice
+    [ VarExp <$> pVar,
+      pKeyword "nil" *> pure NilExp,
+      IntExp <$> lInteger <*> pure pos,
+      StringExp <$> lString <*> pure pos
+    ]
 
--- lVName :: Parser VName
--- lVName = lexeme $ try $ do
---  c <- satisfy isAlpha
---  cs <- many $ satisfy isAlphaNum
---  let v = c : cs
---  if v `elem` keywords
---    then fail "Unexpected keyword"
---    else pure v
---
--- lInteger :: Parser Integer
--- lInteger =
---  lexeme $ read <$> some (satisfy isDigit) <* notFollowedBy (satisfy isAlphaNum)
---
--- lString :: String -> Parser ()
--- lString s = lexeme $ void $ chunk s
---
--- lKeyword :: String -> Parser ()
--- lKeyword s = lexeme $ void $ try $ chunk s <* notFollowedBy (satisfy isAlphaNum)
+pVar :: Parser Var
+pVar = do
+  pos <- getSourcePos
+  v <- SimpleVar <$> lId <*> pure pos
+  rest <- pAccess
+  pure $ rest v
+  where
+    pAccess =
+      choice
+        [ do
+            pos <- getSourcePos
+            symbol "."
+            field <- lId
+            rest <- pAccess
+            pure $ \v -> rest $ FieldVar v field pos,
+          do
+            pos <- getSourcePos
+            e <- between (symbol "[") (symbol "]") pExp
+            rest <- pAccess
+            pure $ \v -> rest $ SubscriptVar v e pos,
+          pure id
+        ]
