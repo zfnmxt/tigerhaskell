@@ -1,18 +1,14 @@
-module Parser where
+module Parser (parse) where
 
 import AST
-import Control.Applicative ((<*))
-import Control.Monad (guard, void, when)
-import Data.Char (chr, isAlpha, isAlphaNum, isDigit, ord)
-import Data.Void (Void)
+import Control.Monad (void, when)
+import Data.Char (chr, isAlpha, isAlphaNum, ord)
 import Text.Megaparsec
   ( Parsec,
     ShowErrorComponent (..),
-    SourcePos,
     anySingle,
     between,
     choice,
-    chunk,
     customFailure,
     empty,
     eof,
@@ -21,14 +17,15 @@ import Text.Megaparsec
     many,
     notFollowedBy,
     option,
-    parse,
-    parseError,
+    optional,
     satisfy,
+    sepBy,
     sepBy1,
     some,
     try,
     (<|>),
   )
+import Text.Megaparsec qualified
 import Text.Megaparsec.Byte.Lexer qualified as L
 import Text.Megaparsec.Char
   ( alphaNumChar,
@@ -37,7 +34,10 @@ import Text.Megaparsec.Char
     printChar,
     space,
     space1,
-    string,
+  )
+import Text.Megaparsec.Pos
+  ( SourcePos (..),
+    mkPos,
   )
 
 type Parser = Parsec Error String
@@ -50,6 +50,57 @@ data Error
 instance ShowErrorComponent Error where
   showErrorComponent (NotKeyword s) = "not a keyword: " <> s
   showErrorComponent (InvalidASCII i) = "invalid ASCII character code: " <> show i
+
+parse :: FilePath -> String -> Either String [Dec]
+parse fname s =
+  case Text.Megaparsec.parse (space *> pDecs <* eof) fname s of
+    Left err -> Left $ errorBundlePretty err
+    Right x -> Right x
+
+noSrcPos :: SourcePos
+noSrcPos = SourcePos "<no location>" (mkPos 1) (mkPos 1)
+
+withSrcPos :: Parser (SourcePos -> a) -> Parser a
+withSrcPos p = do
+  pos <- getSourcePos
+  ($ pos) <$> p
+
+pChainL :: forall a. (Parser (a -> a -> a)) -> Parser a -> Parser a
+pChainL pOp p = do
+  e <- p
+  rest <- pRest
+  pure $ rest e
+  where
+    pRest :: Parser (a -> a)
+    pRest =
+      choice
+        [ do
+            op <- pOp
+            r <- p
+            rest <- pRest
+            pure $ \l -> rest $ l `op` r,
+          pure id
+        ]
+
+pChainR :: forall a. (Parser (a -> a -> a)) -> Parser a -> Parser a
+pChainR pOp p = do
+  e <- p
+  rest <- pRest
+  pure $ rest e
+  where
+    pRest :: Parser (a -> a)
+    pRest =
+      choice
+        [ do
+            op <- pOp
+            r <- p
+            rest <- pRest
+            pure $ \l -> l `op` rest r,
+          pure id
+        ]
+
+integerLit :: Integer -> Exp
+integerLit i = IntExp i noSrcPos
 
 lId :: Parser String
 lId = lexeme $ try $ do
@@ -104,9 +155,9 @@ spaceConsumer =
     skipBlockComments
   where
     skipBlockComments = void $ do
-      symbol "/*"
+      symbol_ "/*"
       skipBlockComments <|> void anySingle <|> empty
-      symbol "*/"
+      symbol_ "*/"
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme spaceConsumer
@@ -114,6 +165,9 @@ lexeme = L.lexeme spaceConsumer
 
 symbol :: String -> Parser String
 symbol = L.symbol spaceConsumer
+
+symbol_ :: String -> Parser ()
+symbol_ = void . symbol
 
 keywords :: [String]
 keywords =
@@ -143,20 +197,16 @@ pKeyword s
   | otherwise = customFailure $ NotKeyword s
 
 pTyId :: Parser (String, SourcePos)
-pTyId = do
-  pos <- getSourcePos
-  (,) <$> lId <*> pure pos
+pTyId = withSrcPos $ (,) <$> lId
 
 pTyAnnot :: Parser (Maybe (String, SourcePos))
 pTyAnnot = option Nothing $ Just <$> (symbol ":" >> pTyId)
 
 pField :: Parser Field
-pField = do
-  pos <- getSourcePos
-  Field <$> lId <* symbol ":" <*> lId <*> pure pos
+pField = withSrcPos $ Field <$> lId <* symbol ":" <*> lId
 
-pFields :: Parser [Field]
-pFields = sepBy1 pField (symbol ",")
+pDecs :: Parser [Dec]
+pDecs = many pDec
 
 pDec :: Parser Dec
 pDec =
@@ -166,28 +216,27 @@ pDec =
       pTypeDec
     ]
   where
-    pVarDec = do
-      pos <- getSourcePos
+    pVarDec = withSrcPos $ do
       pKeyword "var"
-      id <- lId
+      var_id <- lId
       type_id <- pTyAnnot
-      symbol ":="
-      exp <- pExp
-      pure $ VarDec id type_id exp pos
+      symbol_ ":="
+      e <- pExp
+      pure $ VarDec var_id type_id e
 
-    pTypeDec = do
-      pos <- getSourcePos
+    pTypeDec = withSrcPos $ do
       pKeyword "type"
       type_id <- lId
-      symbol "="
+      symbol_ "="
       ty <- pTy
-      pure $ TypeDec (type_id, ty, pos)
+      pure $ \pos -> TypeDec (type_id, ty, pos)
 
 pFunDec :: Parser FunDec
-pFunDec = do
+pFunDec = withSrcPos $ do
   pKeyword "function"
-  pos <- getSourcePos
-  FunDec <$> lId <*> pFields <*> pTyAnnot <*> pExp <*> pure pos
+  FunDec <$> lId <*> pFields <*> pTyAnnot <*> pExp
+  where
+    pFields = sepBy1 pField (symbol ",")
 
 pTy :: Parser Ty
 pTy =
@@ -201,27 +250,17 @@ pTy =
     pRecordTy =
       RecordTy
         <$> between
-          (symbol "{")
-          (symbol "}")
+          (symbol_ "{")
+          (symbol_ "}")
           ( let pTyField = do
-                  id <- lId
-                  symbol ":"
+                  field_id <- lId
+                  symbol_ ":"
                   (type_id, pos) <- pTyId
-                  pure $ Field id type_id pos
-             in pTyField `sepBy1` symbol ","
+                  pure $ Field field_id type_id pos
+             in pTyField `sepBy1` symbol_ ","
           )
     pArrayTy =
       uncurry ArrayTy <$> (pKeyword "array" *> pKeyword "of" *> pTyId)
-
-pExp :: Parser Exp
-pExp = do
-  pos <- getSourcePos
-  choice
-    [ VarExp <$> pVar,
-      pKeyword "nil" *> pure NilExp,
-      IntExp <$> lInteger <*> pure pos,
-      StringExp <$> lString <*> pure pos
-    ]
 
 pVar :: Parser Var
 pVar = do
@@ -232,16 +271,123 @@ pVar = do
   where
     pAccess =
       choice
-        [ do
-            pos <- getSourcePos
-            symbol "."
+        [ withSrcPos $ do
+            symbol_ "."
             field <- lId
             rest <- pAccess
-            pure $ \v -> rest $ FieldVar v field pos,
-          do
-            pos <- getSourcePos
-            e <- between (symbol "[") (symbol "]") pExp
+            pure $ \pos v -> rest $ FieldVar v field pos,
+          withSrcPos $ do
+            e <- between (symbol_ "[") (symbol_ "]") pExp
             rest <- pAccess
-            pure $ \v -> rest $ SubscriptVar v e pos,
+            pure $ \pos v -> rest $ SubscriptVar v e pos,
           pure id
         ]
+
+pExp :: Parser Exp
+pExp = pOr
+  where
+    pOr :: Parser Exp
+    pOr =
+      flip pChainR pAnd $ withSrcPos $ do
+        symbol_ "|"
+        pure $ \pos l r -> IfExp l (integerLit 1) (Just r) pos
+
+    pAnd :: Parser Exp
+    pAnd =
+      flip pChainR pCmp $ withSrcPos $ do
+        symbol_ "&"
+        pure $ \pos l r -> IfExp l r (Just $ integerLit 0) pos
+
+    pCmp :: Parser Exp
+    pCmp = pOpExp (pOper opMap) pPlusMinus
+      where
+        opMap =
+          [ ("=", EqOp),
+            ("<>", NeqOp),
+            ("<", LtOp),
+            ("<=", LeOp),
+            (">", GtOp),
+            (">=", GeOp)
+          ]
+
+    pPlusMinus :: Parser Exp
+    pPlusMinus = pOpExp (pOper [("+", PlusOp), ("-", MinusOp)]) pTimesDiv
+
+    pTimesDiv :: Parser Exp
+    pTimesDiv = pOpExp (pOper [("*", TimesOp), ("/", DivideOp)]) pAtom
+
+    pOper :: [(String, Oper)] -> Parser Oper
+    pOper =
+      choice
+        . map (\(s, op) -> symbol s *> pure op)
+
+    pOpExp :: Parser Oper -> Parser Exp -> Parser Exp
+    pOpExp pOp = pChainL $ withSrcPos $ do
+      op <- pOp
+      pure $ \pos l r -> OpExp l op r pos
+
+pAtom :: Parser Exp
+pAtom = do
+  choice
+    [ pNegate,
+      VarExp <$> pVar,
+      pKeyword "nil" *> pure NilExp,
+      withSrcPos $ IntExp <$> lInteger,
+      withSrcPos $ StringExp <$> lString,
+      withSrcPos $ CallExp <$> lId <*> pExp `sepBy` symbol_ ",",
+      pRecord,
+      SeqExp
+        <$> between
+          (symbol_ "(")
+          (symbol_ ")")
+          (withSrcPos ((,) <$> pExp) `sepBy1` symbol_ ";"),
+      withSrcPos $ AssignExp <$> pVar <*> pExp,
+      pIf,
+      pWhile,
+      pFor,
+      withSrcPos $ pKeyword "break" *> pure BreakExp,
+      pLet,
+      pArray
+    ]
+  where
+    pNegate =
+      withSrcPos $
+        OpExp (integerLit 0) MinusOp <$> (symbol_ "-" *> pAtom)
+    pRecord =
+      let pFields =
+            between (symbol_ "{") (symbol_ "}") $
+              (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ","
+       in withSrcPos $
+            RecordExp <$> pFields <*> lId
+    pIf = do
+      withSrcPos $
+        IfExp
+          <$> (pKeyword "if" *> pExp)
+          <*> (pKeyword "then" *> pExp)
+          <*> (optional $ pKeyword "else" *> pExp)
+    pWhile =
+      withSrcPos $
+        WhileExp
+          <$> (pKeyword "while" *> pExp)
+          <*> (pKeyword "do" *> pExp)
+
+    pFor =
+      withSrcPos $
+        ForExp
+          <$> lId
+          <*> (symbol_ ":=" *> pExp)
+          <*> (pKeyword "to" *> pExp)
+          <*> (pKeyword "do" *> pExp)
+
+    pLet =
+      withSrcPos $
+        LetExp
+          <$> (pKeyword "let" *> many pDec)
+          <*> (pKeyword "in" *> pExp <* pKeyword "end")
+
+    pArray =
+      withSrcPos $
+        ArrayExp
+          <$> lId
+          <*> (between (symbol_ "[") (symbol_ "]") pExp)
+          <*> (pKeyword "of" *> pExp)
