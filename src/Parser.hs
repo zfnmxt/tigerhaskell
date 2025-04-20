@@ -13,6 +13,7 @@ import Text.Megaparsec
     empty,
     eof,
     errorBundlePretty,
+    getParserState,
     getSourcePos,
     many,
     notFollowedBy,
@@ -34,6 +35,7 @@ import Text.Megaparsec.Char
     printChar,
     space,
     space1,
+    string,
   )
 import Text.Megaparsec.Pos
   ( SourcePos (..),
@@ -45,15 +47,17 @@ type Parser = Parsec Error String
 data Error
   = NotKeyword String
   | InvalidASCII Integer
+  | Keyword String
   deriving (Eq, Show, Ord)
 
 instance ShowErrorComponent Error where
   showErrorComponent (NotKeyword s) = "not a keyword: " <> s
   showErrorComponent (InvalidASCII i) = "invalid ASCII character code: " <> show i
+  showErrorComponent (Keyword s) = "unexpected keyword: " <> s
 
-parse :: FilePath -> String -> Either String [Dec]
+parse :: FilePath -> String -> Either String Exp
 parse fname s =
-  case Text.Megaparsec.parse (space *> pDecs <* eof) fname s of
+  case Text.Megaparsec.parse (space *> pExp <* eof) fname s of
     Left err -> Left $ errorBundlePretty err
     Right x -> Right x
 
@@ -106,7 +110,10 @@ lId :: Parser String
 lId = lexeme $ try $ do
   c <- satisfy isAlpha
   cs <- many $ satisfy $ \c' -> isAlphaNum c' || c' == '_'
-  pure $ c : cs
+  let x = c : cs
+  if x `elem` keywords
+    then customFailure $ NotKeyword x
+    else pure x
 
 lInteger :: Parser Integer
 lInteger =
@@ -190,10 +197,10 @@ keywords =
     "nil"
   ]
 
-pKeyword :: String -> Parser ()
-pKeyword s
+lKeyword :: String -> Parser ()
+lKeyword s
   | s `elem` keywords =
-      void $ try (symbol s) <* notFollowedBy (satisfy isAlphaNum)
+      lexeme $ void $ try (string s) <* notFollowedBy (satisfy isAlphaNum)
   | otherwise = customFailure $ NotKeyword s
 
 pTyId :: Parser (String, SourcePos)
@@ -205,9 +212,6 @@ pTyAnnot = option Nothing $ Just <$> (symbol ":" >> pTyId)
 pField :: Parser Field
 pField = withSrcPos $ Field <$> lId <* symbol ":" <*> lId
 
-pDecs :: Parser [Dec]
-pDecs = many pDec
-
 pDec :: Parser Dec
 pDec =
   choice
@@ -217,7 +221,7 @@ pDec =
     ]
   where
     pVarDec = withSrcPos $ do
-      pKeyword "var"
+      lKeyword "var"
       var_id <- lId
       type_id <- pTyAnnot
       symbol_ ":="
@@ -225,7 +229,7 @@ pDec =
       pure $ VarDec var_id type_id e
 
     pTypeDec = withSrcPos $ do
-      pKeyword "type"
+      lKeyword "type"
       type_id <- lId
       symbol_ "="
       ty <- pTy
@@ -233,7 +237,7 @@ pDec =
 
 pFunDec :: Parser FunDec
 pFunDec = withSrcPos $ do
-  pKeyword "function"
+  lKeyword "function"
   FunDec <$> lId <*> pFields <*> pTyAnnot <*> pExp
   where
     pFields = sepBy1 pField (symbol ",")
@@ -260,28 +264,7 @@ pTy =
              in pTyField `sepBy1` symbol_ ","
           )
     pArrayTy =
-      uncurry ArrayTy <$> (pKeyword "array" *> pKeyword "of" *> pTyId)
-
-pVar :: Parser Var
-pVar = do
-  pos <- getSourcePos
-  v <- SimpleVar <$> lId <*> pure pos
-  rest <- pAccess
-  pure $ rest v
-  where
-    pAccess =
-      choice
-        [ withSrcPos $ do
-            symbol_ "."
-            field <- lId
-            rest <- pAccess
-            pure $ \pos v -> rest $ FieldVar v field pos,
-          withSrcPos $ do
-            e <- between (symbol_ "[") (symbol_ "]") pExp
-            rest <- pAccess
-            pure $ \pos v -> rest $ SubscriptVar v e pos,
-          pure id
-        ]
+      uncurry ArrayTy <$> (lKeyword "array" *> lKeyword "of" *> pTyId)
 
 pExp :: Parser Exp
 pExp = pOr
@@ -330,8 +313,8 @@ pAtom :: Parser Exp
 pAtom = do
   choice
     [ pNegate,
-      VarExp <$> pVar,
-      pKeyword "nil" *> pure NilExp,
+      pVarAssignArray,
+      lKeyword "nil" *> pure NilExp,
       withSrcPos $ IntExp <$> lInteger,
       withSrcPos $ StringExp <$> lString,
       withSrcPos $ CallExp <$> lId <*> pExp `sepBy` symbol_ ",",
@@ -341,18 +324,59 @@ pAtom = do
           (symbol_ "(")
           (symbol_ ")")
           (withSrcPos ((,) <$> pExp) `sepBy1` symbol_ ";"),
-      withSrcPos $ AssignExp <$> pVar <*> pExp,
       pIf,
       pWhile,
       pFor,
-      withSrcPos $ pKeyword "break" *> pure BreakExp,
-      pLet,
-      pArray
+      withSrcPos $ lKeyword "break" *> pure BreakExp,
+      pLet
     ]
   where
     pNegate =
       withSrcPos $
         OpExp (integerLit 0) MinusOp <$> (symbol_ "-" *> pAtom)
+
+    pVarAssignArray =
+      withSrcPos $ do
+        x <- lId
+        choice
+          [ pVarAssign x,
+            pArray x
+          ]
+      where
+        pVar :: String -> Parser (SourcePos -> Var)
+        pVar x = do
+          rest <- pAccess
+          pure $ rest . SimpleVar x
+
+        pVarAssign :: String -> Parser (SourcePos -> Exp)
+        pVarAssign x = do
+          f <- pVar x
+          mExp <- optional pExp
+          case mExp of
+            Nothing -> pure $ VarExp . f
+            Just e -> pure $ \pos -> AssignExp (f pos) e pos
+
+        pArray :: String -> Parser (SourcePos -> Exp)
+        pArray x =
+          ArrayExp x
+            <$> (between (symbol_ "[") (symbol_ "]") pExp)
+            <*> (lKeyword "of" *> pExp)
+
+    pAccess :: Parser (Var -> Var)
+    pAccess =
+      choice
+        [ withSrcPos $ do
+            symbol_ "."
+            field <- lId
+            rest <- pAccess
+            pure $ \pos v -> rest $ FieldVar v field pos,
+          withSrcPos $ do
+            e <- between (symbol_ "[") (symbol_ "]") pExp
+            rest <- pAccess
+            pure $ \pos v -> rest $ SubscriptVar v e pos,
+          pure id
+        ]
+
     pRecord =
       let pFields =
             between (symbol_ "{") (symbol_ "}") $
@@ -362,32 +386,25 @@ pAtom = do
     pIf = do
       withSrcPos $
         IfExp
-          <$> (pKeyword "if" *> pExp)
-          <*> (pKeyword "then" *> pExp)
-          <*> (optional $ pKeyword "else" *> pExp)
+          <$> (lKeyword "if" *> pExp)
+          <*> (lKeyword "then" *> pExp)
+          <*> (optional $ lKeyword "else" *> pExp)
     pWhile =
       withSrcPos $
         WhileExp
-          <$> (pKeyword "while" *> pExp)
-          <*> (pKeyword "do" *> pExp)
+          <$> (lKeyword "while" *> pExp)
+          <*> (lKeyword "do" *> pExp)
 
     pFor =
       withSrcPos $
         ForExp
           <$> lId
           <*> (symbol_ ":=" *> pExp)
-          <*> (pKeyword "to" *> pExp)
-          <*> (pKeyword "do" *> pExp)
+          <*> (lKeyword "to" *> pExp)
+          <*> (lKeyword "do" *> pExp)
 
     pLet =
       withSrcPos $
         LetExp
-          <$> (pKeyword "let" *> many pDec)
-          <*> (pKeyword "in" *> pExp <* pKeyword "end")
-
-    pArray =
-      withSrcPos $
-        ArrayExp
-          <$> lId
-          <*> (between (symbol_ "[") (symbol_ "]") pExp)
-          <*> (pKeyword "of" *> pExp)
+          <$> (lKeyword "let" *> many pDec)
+          <*> (lKeyword "in" *> pExp <* lKeyword "end")
