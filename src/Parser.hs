@@ -16,6 +16,7 @@ import Text.Megaparsec
     getParserState,
     getSourcePos,
     many,
+    manyTill,
     notFollowedBy,
     option,
     optional,
@@ -112,7 +113,7 @@ lId = lexeme $ try $ do
   cs <- many $ satisfy $ \c' -> isAlphaNum c' || c' == '_'
   let x = c : cs
   if x `elem` keywords
-    then customFailure $ NotKeyword x
+    then customFailure $ Keyword x
     else pure x
 
 lInteger :: Parser Integer
@@ -160,12 +161,6 @@ spaceConsumer =
     space1
     empty
     (L.skipBlockCommentNested "/*" "*/")
-
--- where
---   skipBlockComments = void $ do
---     symbol_ "/*"
---     skipBlockComments <|> void anySingle <|> empty
---     symbol_ "*/"
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme spaceConsumer
@@ -239,9 +234,9 @@ pDec =
 pFunDec :: Parser FunDec
 pFunDec = withSrcPos $ do
   lKeyword "function"
-  FunDec <$> lId <*> pFields <*> pTyAnnot <*> pExp
+  FunDec <$> lId <*> pFields <*> pTyAnnot <*> (symbol_ "=" *> pExp)
   where
-    pFields = sepBy1 pField (symbol ",")
+    pFields = between (symbol_ "(") (symbol_ ")") $ sepBy1 pField (symbol ",")
 
 pTy :: Parser Ty
 pTy =
@@ -314,11 +309,10 @@ pAtom :: Parser Exp
 pAtom = do
   choice
     [ pNegate,
-      pArrayVarAssignCall,
+      pArrayVarAssignCallRecord,
       lKeyword "nil" *> pure NilExp,
       withSrcPos $ IntExp <$> lInteger,
       withSrcPos $ StringExp <$> lString,
-      pRecord,
       SeqExp
         <$> between
           (symbol_ "(")
@@ -335,12 +329,13 @@ pAtom = do
       withSrcPos $
         OpExp (integerLit 0) MinusOp <$> (symbol_ "-" *> pAtom)
 
-    pArrayVarAssignCall =
+    pArrayVarAssignCallRecord =
       withSrcPos $ do
         x <- lId
         choice
-          [ pArrayVarAssign x,
-            pCall x
+          [ pCall x,
+            pRecord x,
+            pArrayVarAssign x
           ]
       where
         pArrayVarAssign :: String -> Parser (SourcePos -> Exp)
@@ -350,13 +345,27 @@ pAtom = do
             Left array_e -> pure array_e
             Right f -> do
               let f' = f . SimpleVar x
-              mExp <- optional pExp
-              case mExp of
-                Nothing -> pure $ VarExp . f'
-                Just e -> pure $ \pos -> AssignExp (f' pos) e pos
+              choice
+                [ do
+                    e <- symbol_ ":=" *> pExp
+                    pure $ \pos -> AssignExp (f' pos) e pos,
+                  pure $ VarExp . f'
+                ]
 
         pCall :: String -> Parser (SourcePos -> Exp)
-        pCall x = CallExp x <$> pExp `sepBy` symbol_ ","
+        pCall x =
+          CallExp x
+            <$> between
+              (symbol_ "(")
+              (symbol_ ")")
+              (pExp `sepBy` symbol_ ",")
+
+        pRecord :: String -> Parser (SourcePos -> Exp)
+        pRecord x =
+          let pFields =
+                between (symbol_ "{") (symbol_ "}") $
+                  (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ","
+           in RecordExp x <$> pFields
 
         pArrayAccess :: String -> Parser (Either (SourcePos -> Exp) (Var -> Var))
         pArrayAccess x =
@@ -388,12 +397,6 @@ pAtom = do
               pure id
             ]
 
-    pRecord =
-      let pFields =
-            between (symbol_ "{") (symbol_ "}") $
-              (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ","
-       in withSrcPos $
-            RecordExp <$> pFields <*> lId
     pIf = do
       withSrcPos $
         IfExp
@@ -417,5 +420,9 @@ pAtom = do
     pLet =
       withSrcPos $
         LetExp
-          <$> (lKeyword "let" *> many pDec)
-          <*> (lKeyword "in" *> pExp <* lKeyword "end")
+          <$> (lKeyword "let" *> manyTill pDec (lKeyword "in"))
+          <*> ( ( SeqExp
+                    <$> (withSrcPos ((,) <$> pExp) `sepBy` symbol_ ";")
+                )
+                  <* lKeyword "end"
+              )

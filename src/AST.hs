@@ -24,7 +24,7 @@ data Exp
   | StringExp String SourcePos
   | CallExp String [Exp] SourcePos
   | OpExp Exp Oper Exp SourcePos
-  | RecordExp [(String, Exp, SourcePos)] String SourcePos
+  | RecordExp String [(String, Exp, SourcePos)] SourcePos
   | SeqExp [(Exp, SourcePos)]
   | AssignExp Var Exp SourcePos
   | IfExp Exp Exp (Maybe Exp) SourcePos
