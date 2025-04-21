@@ -27,7 +27,6 @@ import Text.Megaparsec
     (<|>),
   )
 import Text.Megaparsec qualified
-import Text.Megaparsec.Byte.Lexer qualified as L
 import Text.Megaparsec.Char
   ( alphaNumChar,
     char,
@@ -37,6 +36,7 @@ import Text.Megaparsec.Char
     space1,
     string,
   )
+import Text.Megaparsec.Char.Lexer qualified as L
 import Text.Megaparsec.Pos
   ( SourcePos (..),
     mkPos,
@@ -57,7 +57,7 @@ instance ShowErrorComponent Error where
 
 parse :: FilePath -> String -> Either String Exp
 parse fname s =
-  case Text.Megaparsec.parse (space *> pExp <* eof) fname s of
+  case Text.Megaparsec.parse (spaceConsumer *> pExp <* eof) fname s of
     Left err -> Left $ errorBundlePretty err
     Right x -> Right x
 
@@ -159,12 +159,13 @@ spaceConsumer =
   L.space
     space1
     empty
-    skipBlockComments
-  where
-    skipBlockComments = void $ do
-      symbol_ "/*"
-      skipBlockComments <|> void anySingle <|> empty
-      symbol_ "*/"
+    (L.skipBlockCommentNested "/*" "*/")
+
+-- where
+--   skipBlockComments = void $ do
+--     symbol_ "/*"
+--     skipBlockComments <|> void anySingle <|> empty
+--     symbol_ "*/"
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme spaceConsumer
@@ -344,7 +345,7 @@ pAtom = do
       where
         pArrayVarAssign :: String -> Parser (SourcePos -> Exp)
         pArrayVarAssign x = do
-          res <- pAccessArray x
+          res <- pArrayAccess x
           case res of
             Left array_e -> pure array_e
             Right f -> do
@@ -357,8 +358,8 @@ pAtom = do
         pCall :: String -> Parser (SourcePos -> Exp)
         pCall x = CallExp x <$> pExp `sepBy` symbol_ ","
 
-        pAccessArray :: String -> Parser (Either (SourcePos -> Exp) (Var -> Var))
-        pAccessArray x =
+        pArrayAccess :: String -> Parser (Either (SourcePos -> Exp) (Var -> Var))
+        pArrayAccess x =
           choice
             [ do
                 e <- between (symbol_ "[") (symbol_ "]") pExp
