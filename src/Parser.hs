@@ -239,7 +239,7 @@ pFunDec = withSrcPos $ do
   lKeyword "function"
   FunDec <$> lId <*> pFields <*> pTyAnnot <*> (symbol_ "=" *> pExp)
   where
-    pFields = between (symbol_ "(") (symbol_ ")") $ sepBy1 pField (symbol ",")
+    pFields = between (symbol_ "(") (symbol_ ")") $ sepBy pField (symbol ",")
 
 pTy :: Parser Ty
 pTy =
@@ -286,10 +286,10 @@ pExp = pOr
         opMap =
           [ ("=", EqOp),
             ("<>", NeqOp),
-            ("<", LtOp),
             ("<=", LeOp),
-            (">", GtOp),
-            (">=", GeOp)
+            (">=", GeOp),
+            ("<", LtOp),
+            (">", GtOp)
           ]
 
     pPlusMinus :: Parser Exp
@@ -301,7 +301,7 @@ pExp = pOr
     pOper :: [(String, Oper)] -> Parser Oper
     pOper =
       choice
-        . map (\(s, op) -> symbol s *> pure op)
+        . map (\(s, op) -> symbol_ s *> pure op)
 
     pOpExp :: Parser Oper -> Parser Exp -> Parser Exp
     pOpExp pOp = pChainL $ withSrcPos $ do
