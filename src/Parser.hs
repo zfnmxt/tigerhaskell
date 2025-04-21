@@ -3,6 +3,7 @@ module Parser (parse) where
 import AST
 import Control.Monad (void, when)
 import Data.Char (chr, isAlpha, isAlphaNum, ord)
+import Data.Maybe (isJust)
 import Text.Megaparsec
   ( Parsec,
     ShowErrorComponent (..),
@@ -219,10 +220,12 @@ pDec =
     pVarDec = withSrcPos $ do
       lKeyword "var"
       var_id <- lId
-      type_id <- pTyAnnot
-      symbol_ ":="
+      symbol_ ":"
+      mtype_id <- option Nothing $ Just <$> pTyId
+      when (isJust mtype_id) $ symbol_ ":"
+      symbol_ "="
       e <- pExp
-      pure $ VarDec var_id type_id e
+      pure $ VarDec var_id mtype_id e
 
     pTypeDec = withSrcPos $ do
       lKeyword "type"
@@ -317,7 +320,7 @@ pAtom = do
         <$> between
           (symbol_ "(")
           (symbol_ ")")
-          (withSrcPos ((,) <$> pExp) `sepBy1` symbol_ ";"),
+          (withSrcPos ((,) <$> pExp) `sepBy` symbol_ ";"),
       pIf,
       pWhile,
       pFor,
@@ -363,8 +366,11 @@ pAtom = do
         pRecord :: String -> Parser (SourcePos -> Exp)
         pRecord x =
           let pFields =
-                between (symbol_ "{") (symbol_ "}") $
-                  (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ","
+                choice
+                  [ between (symbol_ "{") (symbol_ "}") $
+                      (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ",",
+                    lKeyword "nil" *> pure mempty
+                  ]
            in RecordExp x <$> pFields
 
         pArrayAccess :: String -> Parser (Either (SourcePos -> Exp) (Var -> Var))
