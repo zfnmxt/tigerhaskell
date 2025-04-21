@@ -412,7 +412,7 @@ pAtom = do
     pFor =
       withSrcPos $
         ForExp
-          <$> lId
+          <$> (lKeyword "for" *> lId)
           <*> (symbol_ ":=" *> pExp)
           <*> (lKeyword "to" *> pExp)
           <*> (lKeyword "do" *> pExp)
