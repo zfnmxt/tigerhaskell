@@ -313,11 +313,10 @@ pAtom :: Parser Exp
 pAtom = do
   choice
     [ pNegate,
-      pVarAssignArray,
+      pArrayVarAssignCall,
       lKeyword "nil" *> pure NilExp,
       withSrcPos $ IntExp <$> lInteger,
       withSrcPos $ StringExp <$> lString,
-      withSrcPos $ CallExp <$> lId <*> pExp `sepBy` symbol_ ",",
       pRecord,
       SeqExp
         <$> between
@@ -335,47 +334,58 @@ pAtom = do
       withSrcPos $
         OpExp (integerLit 0) MinusOp <$> (symbol_ "-" *> pAtom)
 
-    pVarAssignArray =
+    pArrayVarAssignCall =
       withSrcPos $ do
         x <- lId
         choice
-          [ pVarAssign x,
-            pArray x
+          [ pArrayVarAssign x,
+            pCall x
           ]
       where
-        pVar :: String -> Parser (SourcePos -> Var)
-        pVar x = do
-          rest <- pAccess
-          pure $ rest . SimpleVar x
+        pArrayVarAssign :: String -> Parser (SourcePos -> Exp)
+        pArrayVarAssign x = do
+          res <- pAccessArray x
+          case res of
+            Left array_e -> pure array_e
+            Right f -> do
+              let f' = f . SimpleVar x
+              mExp <- optional pExp
+              case mExp of
+                Nothing -> pure $ VarExp . f'
+                Just e -> pure $ \pos -> AssignExp (f' pos) e pos
 
-        pVarAssign :: String -> Parser (SourcePos -> Exp)
-        pVarAssign x = do
-          f <- pVar x
-          mExp <- optional pExp
-          case mExp of
-            Nothing -> pure $ VarExp . f
-            Just e -> pure $ \pos -> AssignExp (f pos) e pos
+        pCall :: String -> Parser (SourcePos -> Exp)
+        pCall x = CallExp x <$> pExp `sepBy` symbol_ ","
 
-        pArray :: String -> Parser (SourcePos -> Exp)
-        pArray x =
-          ArrayExp x
-            <$> (between (symbol_ "[") (symbol_ "]") pExp)
-            <*> (lKeyword "of" *> pExp)
+        pAccessArray :: String -> Parser (Either (SourcePos -> Exp) (Var -> Var))
+        pAccessArray x =
+          choice
+            [ do
+                e <- between (symbol_ "[") (symbol_ "]") pExp
+                choice
+                  [ (Left . ArrayExp x e)
+                      <$> (lKeyword "of" *> pExp),
+                    withSrcPos $ do
+                      rest <- pAccess
+                      pure $ \pos -> Right $ \v -> rest $ SubscriptVar v e pos
+                  ],
+              Right <$> pAccess
+            ]
 
-    pAccess :: Parser (Var -> Var)
-    pAccess =
-      choice
-        [ withSrcPos $ do
-            symbol_ "."
-            field <- lId
-            rest <- pAccess
-            pure $ \pos v -> rest $ FieldVar v field pos,
-          withSrcPos $ do
-            e <- between (symbol_ "[") (symbol_ "]") pExp
-            rest <- pAccess
-            pure $ \pos v -> rest $ SubscriptVar v e pos,
-          pure id
-        ]
+        pAccess :: Parser (Var -> Var)
+        pAccess =
+          choice
+            [ withSrcPos $ do
+                symbol_ "."
+                field <- lId
+                rest <- pAccess
+                pure $ \pos v -> rest $ FieldVar v field pos,
+              withSrcPos $ do
+                e <- between (symbol_ "[") (symbol_ "]") pExp
+                rest <- pAccess
+                pure $ \pos v -> rest $ SubscriptVar v e pos,
+              pure id
+            ]
 
     pRecord =
       let pFields =
