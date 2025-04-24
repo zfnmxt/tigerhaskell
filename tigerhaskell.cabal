@@ -21,11 +21,16 @@ library
         exposed-modules:
           AST
           Parser
+          Symbol
+          Types
+          Semant
 
         build-depends:
           base,
           megaparsec,
-          text
+          text,
+          mtl,
+          containers
 
         hs-source-dirs:   src
         default-language: GHC2021

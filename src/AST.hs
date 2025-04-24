@@ -5,7 +5,6 @@ module AST
     UntypedFunDec,
     UntypedField,
     UntypedVar,
-    TypedExp,
     Var (..),
     Exp (..),
     Dec (..),
@@ -17,11 +16,6 @@ module AST
 where
 
 import Text.Megaparsec.Pos
-
-data Symbol = Symbol String Int deriving (Show, Ord)
-
-instance Eq Symbol where
-  Symbol _ i1 == Symbol _ i2 = i1 == i2
 
 type UntypedVar = Var String
 
@@ -35,8 +29,6 @@ type UntypedFunDec = FunDec String
 
 type UntypedField = Field String
 
-type TypedExp = Exp Symbol
-
 data Var s
   = SimpleVar s SourcePos
   | FieldVar (Var s) s SourcePos
@@ -46,7 +38,7 @@ data Var s
 data Exp s
   = VarExp (Var s)
   | NilExp
-  | IntExp Integer SourcePos
+  | IntExp Integer Ty SourcePos
   | StringExp String SourcePos
   | CallExp String [Exp s] SourcePos
   | OpExp (Exp s) Oper (Exp s) SourcePos
