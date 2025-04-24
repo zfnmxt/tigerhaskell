@@ -7,14 +7,12 @@ import Data.Maybe (isJust)
 import Text.Megaparsec
   ( Parsec,
     ShowErrorComponent (..),
-    anySingle,
     between,
     choice,
     customFailure,
     empty,
     eof,
     errorBundlePretty,
-    getParserState,
     getSourcePos,
     many,
     manyTill,
@@ -26,7 +24,6 @@ import Text.Megaparsec
     sepBy1,
     some,
     try,
-    (<|>),
   )
 import Text.Megaparsec qualified
 import Text.Megaparsec.Char
@@ -57,7 +54,7 @@ instance ShowErrorComponent Error where
   showErrorComponent (InvalidASCII i) = "invalid ASCII character code: " <> show i
   showErrorComponent (Keyword s) = "unexpected keyword: " <> s
 
-parse :: FilePath -> String -> Either String Exp
+parse :: FilePath -> String -> Either String UntypedExp
 parse fname s =
   case Text.Megaparsec.parse (spaceConsumer *> pExp <* eof) fname s of
     Left err -> Left $ errorBundlePretty err
@@ -105,7 +102,7 @@ pChainR pOp p = do
           pure id
         ]
 
-integerLit :: Integer -> Exp
+integerLit :: Integer -> UntypedExp
 integerLit i = IntExp i noSrcPos
 
 lId :: Parser String
@@ -206,10 +203,10 @@ pTyId = withSrcPos $ (,) <$> lId
 pTyAnnot :: Parser (Maybe (String, SourcePos))
 pTyAnnot = option Nothing $ Just <$> (symbol ":" >> pTyId)
 
-pField :: Parser Field
+pField :: Parser UntypedField
 pField = withSrcPos $ Field <$> lId <* symbol ":" <*> lId
 
-pDec :: Parser Dec
+pDec :: Parser UntypedDec
 pDec =
   choice
     [ FunctionDec <$> pFunDec,
@@ -234,14 +231,14 @@ pDec =
       ty <- pTy
       pure $ \pos -> TypeDec (type_id, ty, pos)
 
-pFunDec :: Parser FunDec
+pFunDec :: Parser UntypedFunDec
 pFunDec = withSrcPos $ do
   lKeyword "function"
   FunDec <$> lId <*> pFields <*> pTyAnnot <*> (symbol_ "=" *> pExp)
   where
     pFields = between (symbol_ "(") (symbol_ ")") $ sepBy pField (symbol ",")
 
-pTy :: Parser Ty
+pTy :: Parser UntypedTy
 pTy =
   choice
     [ pNameTy,
@@ -265,22 +262,22 @@ pTy =
     pArrayTy =
       uncurry ArrayTy <$> (lKeyword "array" *> lKeyword "of" *> pTyId)
 
-pExp :: Parser Exp
+pExp :: Parser UntypedExp
 pExp = pOr
   where
-    pOr :: Parser Exp
+    pOr :: Parser UntypedExp
     pOr =
       flip pChainR pAnd $ withSrcPos $ do
         symbol_ "|"
         pure $ \pos l r -> IfExp l (integerLit 1) (Just r) pos
 
-    pAnd :: Parser Exp
+    pAnd :: Parser UntypedExp
     pAnd =
       flip pChainR pCmp $ withSrcPos $ do
         symbol_ "&"
         pure $ \pos l r -> IfExp l r (Just $ integerLit 0) pos
 
-    pCmp :: Parser Exp
+    pCmp :: Parser UntypedExp
     pCmp = pOpExp (pOper opMap) pPlusMinus
       where
         opMap =
@@ -292,10 +289,10 @@ pExp = pOr
             (">", GtOp)
           ]
 
-    pPlusMinus :: Parser Exp
+    pPlusMinus :: Parser UntypedExp
     pPlusMinus = pOpExp (pOper [("+", PlusOp), ("-", MinusOp)]) pTimesDiv
 
-    pTimesDiv :: Parser Exp
+    pTimesDiv :: Parser UntypedExp
     pTimesDiv = pOpExp (pOper [("*", TimesOp), ("/", DivideOp)]) pAtom
 
     pOper :: [(String, Oper)] -> Parser Oper
@@ -303,12 +300,12 @@ pExp = pOr
       choice
         . map (\(s, op) -> symbol_ s *> pure op)
 
-    pOpExp :: Parser Oper -> Parser Exp -> Parser Exp
+    pOpExp :: Parser Oper -> Parser UntypedExp -> Parser UntypedExp
     pOpExp pOp = pChainL $ withSrcPos $ do
       op <- pOp
       pure $ \pos l r -> OpExp l op r pos
 
-pAtom :: Parser Exp
+pAtom :: Parser UntypedExp
 pAtom = do
   choice
     [ pNegate,
@@ -341,7 +338,7 @@ pAtom = do
             pArrayVarAssign x
           ]
       where
-        pArrayVarAssign :: String -> Parser (SourcePos -> Exp)
+        pArrayVarAssign :: String -> Parser (SourcePos -> UntypedExp)
         pArrayVarAssign x = do
           res <- pArrayAccess x
           case res of
@@ -355,7 +352,7 @@ pAtom = do
                   pure $ VarExp . f'
                 ]
 
-        pCall :: String -> Parser (SourcePos -> Exp)
+        pCall :: String -> Parser (SourcePos -> UntypedExp)
         pCall x =
           CallExp x
             <$> between
@@ -363,7 +360,7 @@ pAtom = do
               (symbol_ ")")
               (pExp `sepBy` symbol_ ",")
 
-        pRecord :: String -> Parser (SourcePos -> Exp)
+        pRecord :: String -> Parser (SourcePos -> UntypedExp)
         pRecord x =
           let pFields =
                 choice
@@ -373,7 +370,7 @@ pAtom = do
                   ]
            in RecordExp x <$> pFields
 
-        pArrayAccess :: String -> Parser (Either (SourcePos -> Exp) (Var -> Var))
+        pArrayAccess :: String -> Parser (Either (SourcePos -> UntypedExp) (UntypedVar -> UntypedVar))
         pArrayAccess x =
           choice
             [ do
@@ -388,7 +385,7 @@ pAtom = do
               Right <$> pAccess
             ]
 
-        pAccess :: Parser (Var -> Var)
+        pAccess :: Parser (UntypedVar -> UntypedVar)
         pAccess =
           choice
             [ withSrcPos $ do
