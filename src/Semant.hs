@@ -3,7 +3,9 @@ module Semant (transProg) where
 import AST hiding (Dec, Exp, Field, FunDec, Ty, Var)
 import AST qualified as AST
 import Control.Monad.RWS
+import Env
 import Symbol
+import Translate qualified
 import Types
 
 type Var = AST.Var Symbol
@@ -17,11 +19,6 @@ type Dec = AST.Dec Symbol
 type FunDec = AST.FunDec Symbol
 
 type Field = AST.Field Symbol
-
-data EnvEntry
-  = VarEntry Ty
-  | FunEntry [Ty] Ty
-  deriving (Eq, Show, Ord)
 
 data Env = Env
   { envVal :: SymTable EnvEntry,
@@ -54,14 +51,24 @@ instance MonadSymTable TransM Ty where
   askSymTable = asks envTy
   withSymTable f = local $ \env -> env {envTy = f $ envTy env}
 
-transProg :: UntypedExp -> TransM Exp
+data ExpTy = ExpTy Translate.Exp Ty
+
+typeOf :: ExpTy -> Ty
+typeOf (ExpTy _ ty) = ty
+
+transProg :: UntypedExp -> TransM ExpTy
 transProg = undefined
 
-transVar :: UntypedVar -> TransM Var
+transVar :: UntypedVar -> TransM ExpTy
 transVar = undefined
 
-transExp :: UntypedExp -> TransM Exp
-transExp = undefined
+transExp :: UntypedExp -> TransM ExpTy
+transExp (OpExp l op r _) = do
+ l' <- transExp l
+ r' <- transExp r
+ if op `elem` [PlusOp, MinusOp, TimesOp, DivideOp]
+   then
+
 
 transTy :: UntypedTy -> TransM Ty
 transTy = undefined

@@ -9,6 +9,7 @@ module Symbol
     newSym,
     askSym,
     insertSym,
+    initTag,
     nextTag,
   )
 where
@@ -19,6 +20,9 @@ import Data.Map qualified as M
 
 newtype Tag = Tag {getTag :: Int}
   deriving (Show, Eq, Ord)
+
+initTag :: Tag
+initTag = Tag 0
 
 nextTag :: Tag -> Tag
 nextTag (Tag x) = Tag $ x + 1

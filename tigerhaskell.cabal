@@ -24,6 +24,8 @@ library
           Symbol
           Types
           Semant
+          Env
+          Translate
 
         build-depends:
           base,

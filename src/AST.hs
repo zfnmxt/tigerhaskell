@@ -38,7 +38,7 @@ data Var s
 data Exp s
   = VarExp (Var s)
   | NilExp
-  | IntExp Integer Ty SourcePos
+  | IntExp Integer SourcePos
   | StringExp String SourcePos
   | CallExp String [Exp s] SourcePos
   | OpExp (Exp s) Oper (Exp s) SourcePos
