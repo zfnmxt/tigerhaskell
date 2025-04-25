@@ -6,6 +6,7 @@ module Symbol
     SymTable (..),
     MonadSym (..),
     MonadSymTable (..),
+    newTag,
     newSym,
     askSym,
     insertSym,
@@ -40,11 +41,14 @@ class (Monad m) => MonadSym m where
   getSymTag :: m Tag
   putSymTag :: Tag -> m ()
 
-newSym :: (MonadSym m) => String -> m Symbol
-newSym s = do
+newTag :: (MonadSym m) => m Tag
+newTag = do
   tag <- getSymTag
   putSymTag $ nextTag tag
-  pure $ Symbol s tag
+  pure tag
+
+newSym :: (MonadSym m) => String -> m Symbol
+newSym s = Symbol s <$> newTag
 
 instance (Monad m, MonadState Tag m) => MonadSym m where
   getSymTag = get

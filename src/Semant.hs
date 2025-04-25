@@ -150,25 +150,69 @@ transExp (OpExp l op r pos) = do
               InvalidType r_ty (S.singleton l_ty) pos
           pure $ OpExp l' op r' pos ::: Int
 
-transTy :: UntypedTy -> TransM (AST.Ty Symbol)
-transTy = undefined
+transField :: UntypedField -> TransM (Field ::: Ty)
+transField (AST.Field field ty_s pos) = do
+  field_sym <- newSym field
+  ty_sym <- lookupSym' ty_s pos
+  ty <- lookupTy' ty_sym pos
+  pure $ AST.Field field_sym ty_sym pos ::: ty
 
-transDec :: UntypedDec -> TransM Dec
-transDec (VarDec s mty e pos) = do
+transTy :: UntypedTy -> TransM (AST.Ty Symbol ::: Ty)
+transTy (NameTy s pos) = do
+  sym <- lookupSym' s pos
+  ty <- lookupTy' sym pos
+  pure $ NameTy sym pos ::: ty
+transTy (RecordTy fields) = do
+  fields' <- mapM transField fields
+  tag <- newTag
+  let ty_fields = map (\(AST.Field sym _ _ ::: ty) -> (sym, ty)) fields'
+      ty = Record ty_fields tag
+  pure $ RecordTy (map deannotate fields') ::: ty
+transTy (ArrayTy s pos) = do
+  sym <- lookupSym' s pos
+  ty <- lookupTy' sym pos
+  pure $ ArrayTy sym pos ::: ty
+
+transDec :: UntypedDec -> (Dec -> TransM a) -> TransM a
+-- transDec (FunctionDec (FunDec f params mrt body pos)) = do
+--  params' <- mapM transField params
+--  mrt' <-
+--    case mrt of
+--      Nothing -> pure Nothing
+--      Just (rt_s, pos) -> do
+--        rt_sym <- lookupSym' rt_s pos
+--        rt <- lookupTy rt_sym pos
+--        pure $ Just rt
+--  body' ::: body_ty <-
+--    transExp body
+--  where
+--    transParam :: UntypedField -> TransM (Field :: Ty)
+--    transParam (AST.Field param ty_s pos) = do
+transDec (VarDec s mty e pos) m = do
   e' ::: e_ty <- transExp e
   mtyt <- case mty of
     Nothing -> pure Nothing
     Just (ty_s, ty_pos) -> do
       ty_sym <- lookupSym' ty_s ty_pos
       ty <- lookupTy' ty_sym ty_pos
-      unless (validConstraint ty e_ty) $
-        throwError $
-          InvalidType e_ty (S.singleton ty) ty_pos
+      checkTypeAnnot ty_pos e_ty ty
       pure $ Just (ty_sym, ty_pos)
   sym <- newSym s
-  pure $ VarDec sym mtyt e' pos
-  where
-    validConstraint (Record _ _) Nil = True
-    validConstraint ty e_ty = ty == e_ty
-transDec (TypeDec s ty pos) =
-  TypeDec <$> newSym s <*> transTy ty <*> pure pos
+  insertSym
+    sym
+    (VarEntry e_ty)
+    (m $ VarDec sym mtyt e' pos)
+transDec (TypeDec s sty pos) m = do
+  sym <- newSym s
+  sty' ::: ty <- transTy sty
+  insertSym sym ty (m $ TypeDec sym sty' pos)
+
+validTypeAnnot :: Type -> Type -> Bool
+validTypeAnnot Nil (Record _ _) = True
+validTypeAnnot e_ty ty = ty == e_ty
+
+checkTypeAnnot :: SourcePos -> Type -> Type -> TransM ()
+checkTypeAnnot pos e_ty ty =
+  unless (e_ty `validTypeAnnot` ty) $
+    throwError $
+      InvalidType e_ty (S.singleton ty) pos
