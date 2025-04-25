@@ -12,6 +12,7 @@ module AST
     Oper (..),
     FunDec (..),
     Field (..),
+    SourcePos (..),
   )
 where
 
@@ -59,7 +60,7 @@ data Exp s
 data Dec s
   = FunctionDec (FunDec s)
   | VarDec s (Maybe (s, SourcePos)) (Exp s) SourcePos
-  | TypeDec (s, Ty s, SourcePos)
+  | TypeDec s (Ty s) SourcePos
   deriving (Show, Eq, Ord)
 
 data Ty s

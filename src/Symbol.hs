@@ -28,8 +28,8 @@ nextTag :: Tag -> Tag
 nextTag (Tag x) = Tag $ x + 1
 
 data Symbol = Symbol
-  { symbolName :: String,
-    symbolTag :: Tag
+  { symName :: String,
+    symTag :: Tag
   }
   deriving (Show, Ord)
 

@@ -229,7 +229,7 @@ pDec =
       type_id <- lId
       symbol_ "="
       ty <- pTy
-      pure $ \pos -> TypeDec (type_id, ty, pos)
+      pure $ \pos -> TypeDec type_id ty pos
 
 pFunDec :: Parser UntypedFunDec
 pFunDec = withSrcPos $ do
