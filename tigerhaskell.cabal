@@ -52,10 +52,10 @@ test-suite tigerhaskell-test
         default-language: GHC2021
         type:             exitcode-stdio-1.0
         hs-source-dirs:   test
-        main-is:          Driver.hs
+        main-is:          Tests.hs
         build-depends:
          base,
          tigerhaskell,
-         tasty
-        build-tool-depends:
-          tasty-discover:tasty-discover
+         tasty,
+         tasty-hunit,
+         directory

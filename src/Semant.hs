@@ -113,7 +113,7 @@ withSym s m = do
       local (\env -> env {envSym = M.insert s sym $ envSym env}) $ m sym
 
 transProg :: UntypedExp -> TransM (Exp ::: Ty)
-transProg = undefined
+transProg = transExp
 
 transVar :: UntypedVar -> TransM (Var ::: Ty)
 transVar (SimpleVar s pos) = do
@@ -174,20 +174,26 @@ transTy (ArrayTy s pos) = do
   pure $ ArrayTy sym pos ::: ty
 
 transDec :: UntypedDec -> (Dec -> TransM a) -> TransM a
--- transDec (FunctionDec (FunDec f params mrt body pos)) = do
---  params' <- mapM transField params
---  mrt' <-
---    case mrt of
---      Nothing -> pure Nothing
---      Just (rt_s, pos) -> do
---        rt_sym <- lookupSym' rt_s pos
---        rt <- lookupTy rt_sym pos
---        pure $ Just rt
---  body' ::: body_ty <-
---    transExp body
---  where
---    transParam :: UntypedField -> TransM (Field :: Ty)
---    transParam (AST.Field param ty_s pos) = do
+transDec (FunctionDec (AST.FunDec f params mrt body pos)) next = do
+  params' <- mapM transField params
+  body' ::: body_ty <-
+    withParams params' $ transExp body
+  mrt' <-
+    case mrt of
+      Nothing -> pure Nothing
+      Just (rt_s, pos) -> do
+        rt_sym <- lookupSym' rt_s pos
+        rt <- lookupTy' rt_sym pos
+        checkTypeAnnot pos body_ty rt
+        pure $ Just (rt_sym, pos)
+  f' <- newSym f
+  insertSym f' (FunEntry (map typeOf params') body_ty) $
+    next (FunctionDec $ AST.FunDec f' (map deannotate params') mrt' body' pos)
+  where
+    withParams :: [Field ::: Ty] -> TransM a -> TransM a
+    withParams [] m = m
+    withParams (AST.Field field _ _ ::: ty : ps) m =
+      insertSym field (VarEntry ty) $ withParams ps m
 transDec (VarDec s mty e pos) m = do
   e' ::: e_ty <- transExp e
   mtyt <- case mty of
@@ -207,11 +213,11 @@ transDec (TypeDec s sty pos) m = do
   sty' ::: ty <- transTy sty
   insertSym sym ty (m $ TypeDec sym sty' pos)
 
-validTypeAnnot :: Type -> Type -> Bool
+validTypeAnnot :: Ty -> Ty -> Bool
 validTypeAnnot Nil (Record _ _) = True
 validTypeAnnot e_ty ty = ty == e_ty
 
-checkTypeAnnot :: SourcePos -> Type -> Type -> TransM ()
+checkTypeAnnot :: SourcePos -> Ty -> Ty -> TransM ()
 checkTypeAnnot pos e_ty ty =
   unless (e_ty `validTypeAnnot` ty) $
     throwError $
