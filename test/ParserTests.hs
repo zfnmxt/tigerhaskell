@@ -1,10 +1,11 @@
 module ParserTests (tests) where
 
 import AST
+import Control.Monad
 import Parser
 import Test.Tasty
 import Test.Tasty.HUnit
-import TigerTests
+import qualified TigerTests
 
 parserTest :: String -> UntypedExp -> TestTree
 parserTest s e =
@@ -13,19 +14,15 @@ parserTest s e =
       Left err -> assertFailure err
       Right e' -> e' @?= e
 
-parserTest_ :: IO FilePath -> TestTree
-parserTest_ mfp =
-  testCaseInfo "" $ do
-    s <- readFile =<< mfp
-    case parse "" s of
-      Left err -> assertFailure err
-      Right e' -> mfp
-
 tests :: TestTree
 tests =
   testGroup
     "parser"
-    [ testGroup
-        "tiger testcases"
-        $ map parserTest_ testCases
+    [ testCaseSteps "tiger testcases" $ \step -> do
+        tests <- TigerTests.testCases
+        forM_ tests $ \(f, s) -> do
+          step f
+          case parse f s of
+            Left err -> assertFailure err
+            Right {} -> pure ()
     ]

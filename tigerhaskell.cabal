@@ -58,4 +58,5 @@ test-suite tigerhaskell-test
          tigerhaskell,
          tasty,
          tasty-hunit,
-         directory
+         directory,
+         filepath
