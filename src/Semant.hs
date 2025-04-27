@@ -40,6 +40,16 @@ instance Semigroup Env where
 instance Monoid Env where
   mempty = Env mempty mempty mempty
 
+initEnv :: Env
+initEnv =
+  Env
+    { envVal = prelude_val,
+      envTy = prelude_ty,
+      envSym = mempty
+    }
+  where
+    (prelude_val, prelude_ty) = prelude
+
 data Error
   = InvalidType Ty (Set Ty) SourcePos
   | UndefinedVar String SourcePos
@@ -112,8 +122,8 @@ withSym s m = do
       sym <- newSym s
       local (\env -> env {envSym = M.insert s sym $ envSym env}) $ m sym
 
-transProg :: UntypedExp -> TransM (Exp ::: Ty)
-transProg = transExp
+transProg :: UntypedExp -> Either Error (Exp ::: Ty)
+transProg e = fst <$> evalRWST (runTransM $ transExp e) initEnv initTag
 
 transVar :: UntypedVar -> TransM (Var ::: Ty)
 transVar (SimpleVar s pos) = do
