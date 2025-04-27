@@ -1,4 +1,4 @@
-module Semant (transProg) where
+module Semant (transProg, (:::) (..)) where
 
 import AST hiding (Dec, Exp, Field, FunDec, Ty, Var)
 import AST qualified as AST
@@ -53,7 +53,9 @@ initEnv =
 data Error
   = InvalidType Ty (Set Ty) SourcePos
   | UndefinedVar String SourcePos
+  | UndefinedFun String SourcePos
   | UndefinedType String SourcePos
+  | Error String SourcePos
   deriving (Show, Eq)
 
 newtype TransM a = TransM {runTransM :: RWST Env () Tag (Either Error) a}
@@ -103,6 +105,16 @@ lookupVar' sym pos = do
     Just (VarEntry ty) -> pure ty
     _ -> throwError $ UndefinedVar (symName sym) pos
 
+lookupFun :: Symbol -> TransM (Maybe Ty)
+lookupFun = askSym
+
+lookupFun' :: Symbol -> SourcePos -> TransM ([Ty], Ty)
+lookupFun' sym pos = do
+  mentry <- askSym sym
+  case mentry of
+    Just (FunEntry pts rt) -> pure (pts, rt)
+    _ -> throwError $ UndefinedFun (symName sym) pos
+
 lookupTy :: Symbol -> TransM (Maybe Ty)
 lookupTy = askSym
 
@@ -143,6 +155,25 @@ transExp :: UntypedExp -> TransM (Exp ::: Ty)
 transExp (VarExp v) = do
   v' ::: v_ty <- transVar v
   pure $ VarExp v' ::: v_ty
+transExp NilExp = pure $ NilExp ::: Nil
+transExp (IntExp i pos) = pure $ IntExp i pos ::: Int
+transExp (StringExp s pos) = pure $ StringExp s pos ::: String
+transExp (CallExp f args pos) = do
+  f' <- lookupSym' f pos
+  (pts, rt) <- lookupFun' f' pos
+  args' <- mapM transExp args
+  unless (length pts == length args) $
+    throwError $
+      Error
+        ( "Function expects "
+            <> show (length pts)
+            <> " arguments, but "
+            <> show (length args)
+            <> " were given."
+        )
+        pos
+  void $ zipWithM (checkTypeAnnot pos) (map typeOf args') pts
+  pure $ CallExp f' (map deannotate args') pos ::: rt
 transExp (OpExp l op r pos) = do
   lt@(l' ::: l_ty) <- transExp l
   rt@(r' ::: r_ty) <- transExp r
@@ -159,6 +190,76 @@ transExp (OpExp l op r pos) = do
             throwError $
               InvalidType r_ty (S.singleton l_ty) pos
           pure $ OpExp l' op r' pos ::: Int
+transExp (RecordExp t fields pos) = do
+  t_sym <- lookupSym' t pos
+  t <- lookupTy' t_sym pos
+  case recordFields t of
+    Nothing -> throwError $ InvalidType t S.empty pos
+    Just t_fields -> do
+      fields' <- forM (zip t_fields fields) $
+        \((_, f_ty), (field, e, f_pos)) -> do
+          field_sym <- lookupSym' field f_pos
+          e' ::: e_ty <- transExp e
+          checkTypeAnnot pos e_ty f_ty
+          pure (field_sym, e', pos)
+      pure $ RecordExp t_sym fields' pos ::: t
+transExp (SeqExp es) = do
+  es' <- mapM (transExp . fst) es
+  let t =
+        case es' of
+          [] -> Unit
+          _ -> typeOf $ last es'
+  pure $
+    SeqExp
+      (zipWith (\(_, pos) (e' ::: _) -> (e', pos)) es es')
+      ::: t
+transExp (AssignExp v e pos) = do
+  v' ::: v_t <- transVar v
+  e' ::: e_t <- transExp e
+  checkTypeAnnot pos e_t v_t
+  pure $ AssignExp v' e' pos ::: v_t
+transExp (IfExp c t mf pos) = do
+  c' ::: c_t <- transExp c
+  eqTypes pos c_t Int
+  t' ::: t_t <- transExp t
+  mf' <- case mf of
+    Nothing -> pure Nothing
+    Just f -> do
+      f' ::: f_t <- transExp f
+      eqTypes pos t_t f_t
+      pure $ Just f'
+  pure $ IfExp c' t' mf' pos ::: t_t
+transExp (WhileExp c b pos) = do
+  c' ::: c_t <- transExp c
+  eqTypes pos c_t Int
+  b' ::: b_t <- transExp b
+  pure $ WhileExp c' b' pos ::: b_t
+transExp (ForExp i from to b pos) = do
+  i_sym <- newSym i
+  from' ::: from_t <- transExp from
+  eqTypes pos from_t Int
+  to' ::: to_t <- transExp to
+  eqTypes pos to_t Int
+  b' ::: b_t <-
+    insertSym i_sym (VarEntry Int) $
+      transExp b
+  pure $ ForExp i_sym from' to' b' pos ::: b_t
+transExp (BreakExp pos) = pure $ BreakExp pos ::: Unit
+transExp (LetExp decs e pos) = do
+  (decs', e' ::: t) <- transDecs decs $ \decs' ->
+    (decs',) <$> transExp e
+  pure $ LetExp decs' e' pos ::: t
+transExp (ArrayExp t n e pos) = do
+  t_sym <- lookupSym' t pos
+  t' <- lookupTy' t_sym pos
+  case elemType t' of
+    Nothing -> throwError $ InvalidType t' S.empty pos
+    Just elem_t -> do
+      n' ::: n_t <- transExp n
+      eqTypes pos n_t Int
+      e' ::: e_t <- transExp e
+      eqTypes pos e_t elem_t
+      pure $ ArrayExp t_sym n' e' pos ::: t'
 
 transField :: UntypedField -> TransM (Field ::: Ty)
 transField (AST.Field field ty_s pos) = do
@@ -182,6 +283,14 @@ transTy (ArrayTy s pos) = do
   sym <- lookupSym' s pos
   ty <- lookupTy' sym pos
   pure $ ArrayTy sym pos ::: ty
+
+transDecs :: [UntypedDec] -> ([Dec] -> TransM a) -> TransM a
+transDecs ds m = transDecs' ds []
+  where
+    transDecs' [] ds' = m $ reverse ds'
+    transDecs' (d : ds) ds' =
+      transDec d $ \d' ->
+        transDecs' ds (d' : ds')
 
 transDec :: UntypedDec -> (Dec -> TransM a) -> TransM a
 transDec (FunctionDec (AST.FunDec f params mrt body pos)) next = do
@@ -232,3 +341,9 @@ checkTypeAnnot pos e_ty ty =
   unless (e_ty `validTypeAnnot` ty) $
     throwError $
       InvalidType e_ty (S.singleton ty) pos
+
+eqTypes :: SourcePos -> Ty -> Ty -> TransM ()
+eqTypes pos t1 t2 =
+  unless (t1 == t2) $
+    throwError $
+      InvalidType t1 (S.singleton t2) pos

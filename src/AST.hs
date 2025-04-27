@@ -41,7 +41,7 @@ data Exp s
   | NilExp
   | IntExp Integer SourcePos
   | StringExp String SourcePos
-  | CallExp String [Exp s] SourcePos
+  | CallExp s [Exp s] SourcePos
   | OpExp (Exp s) Oper (Exp s) SourcePos
   | RecordExp s [(s, Exp s, SourcePos)] SourcePos
   | SeqExp [(Exp s, SourcePos)]
