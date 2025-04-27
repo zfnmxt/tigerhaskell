@@ -32,7 +32,8 @@ tests =
     [ testGroup
         "simple"
         [ semantTest' "1" $ Just Types.Int,
-          semantTest' "1 + 2" $ Just Types.Int
+          semantTest' "1 + 2" $ Just Types.Int,
+          semantTest' "let var x := 5 in x end" $ Just Types.Int
         ],
       testCaseSteps "tiger testcases" $ \step -> do
         tests <- TigerTests.testCases

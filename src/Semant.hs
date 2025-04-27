@@ -314,19 +314,17 @@ transDec (FunctionDec (AST.FunDec f params mrt body pos)) next = do
     withParams (AST.Field field _ _ ::: ty : ps) m =
       insertSym field (VarEntry ty) $ withParams ps m
 transDec (VarDec s mty e pos) m = do
-  e' ::: e_ty <- transExp e
-  mtyt <- case mty of
-    Nothing -> pure Nothing
-    Just (ty_s, ty_pos) -> do
-      ty_sym <- lookupSym' ty_s ty_pos
-      ty <- lookupTy' ty_sym ty_pos
-      checkTypeAnnot ty_pos e_ty ty
-      pure $ Just (ty_sym, ty_pos)
   sym <- newSym s
-  insertSym
-    sym
-    (VarEntry e_ty)
-    (m $ VarDec sym mtyt e' pos)
+  insertSym sym (VarEntry (e_ty) $ do
+    e' ::: e_ty <- transExp e
+    mtyt <- case mty of
+      Nothing -> pure Nothing
+      Just (ty_s, ty_pos) -> do
+        ty_sym <- lookupSym' ty_s ty_pos
+        ty <- lookupTy' ty_sym ty_pos
+        checkTypeAnnot ty_pos e_ty ty
+        pure $ Just (ty_sym, ty_pos)
+    m $ VarDec sym mtyt e' pos
 transDec (TypeDec s sty pos) m = do
   sym <- newSym s
   sty' ::: ty <- transTy sty
