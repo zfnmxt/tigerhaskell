@@ -50,7 +50,8 @@ tests =
                 ]
             )
             $ Just Types.String,
-          semantTest' "let type t = int in 0 end" $ Just Types.Int
+          semantTest' "let type t = int in 0 end" $ Just Types.Int,
+          semantTest' "let type list = {hd: int, tail: list} in 0 end" $ Just Types.Int
         ],
       testCaseSteps "tiger valid testcases" $ \step -> do
         tests <- TigerTests.validTestCases

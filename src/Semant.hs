@@ -355,13 +355,17 @@ transDec (VarDec s mty e pos) m = do
       (VarEntry e_ty)
       (m $ VarDec sym mtyt e' pos)
 transDec (TypeDec decs) m =
-  transTypeDecs decs []
+  withHeaders decs
   where
-    transTypeDecs [] ds' = m $ TypeDec ds'
-    transTypeDecs ((s, sty, pos) : ds) ds' = do
-      sty' ::: ty <- transTy sty
+    withHeaders [] = m =<< TypeDec <$> mapM transTypeDec decs
+    withHeaders ((s, sty, pos) : ds) = do
       withSym s $ \sym ->
-        insertSym sym ty (transTypeDecs ds ((sym, sty', pos) : ds'))
+        insertSym sym (Name sym Nothing) (withHeaders ds)
+
+    transTypeDec (s, sty, pos) = do
+      sym <- lookupSym' s pos
+      sty' ::: ty <- transTy sty
+      pure (sym, sty', pos)
 
     transTy :: UntypedTy -> TransM (AST.Ty Symbol ::: Ty)
     transTy (NameTy s pos) = do
