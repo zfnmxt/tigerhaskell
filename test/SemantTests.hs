@@ -33,7 +33,23 @@ tests =
         "simple"
         [ semantTest' "1" $ Just Types.Int,
           semantTest' "1 + 2" $ Just Types.Int,
-          semantTest' "let var x := 5 in x end" $ Just Types.Int
+          semantTest' "let var x := 5 in x end" $ Just Types.Int,
+          semantTest'
+            ( unwords
+                [ "let var x := 1",
+                  "var x := 2",
+                  "in x end"
+                ]
+            )
+            $ Just Types.Int,
+          semantTest'
+            ( unwords
+                [ "let var x := 1",
+                  "var x := \"hello\"",
+                  "in x end"
+                ]
+            )
+            $ Just Types.String
         ],
       testCaseSteps "tiger valid testcases" $ \step -> do
         tests <- TigerTests.validTestCases
