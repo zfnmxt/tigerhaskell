@@ -6,5 +6,5 @@ var d:int :=0
 type treelist = {hd: tree, tl: treelist}
 
 in
-	d
+        d
 end

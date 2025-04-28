@@ -35,8 +35,8 @@ tests =
           semantTest' "1 + 2" $ Just Types.Int,
           semantTest' "let var x := 5 in x end" $ Just Types.Int
         ],
-      testCaseSteps "tiger testcases" $ \step -> do
-        tests <- TigerTests.testCases
+      testCaseSteps "tiger valid testcases" $ \step -> do
+        tests <- TigerTests.validTestCases
         forM_ tests $ \(f, s) -> do
           step f
           case parse f s of
@@ -44,5 +44,15 @@ tests =
             Right e ->
               case transProg e of
                 Left err' -> assertFailure $ show err'
-                Right {} -> pure ()
+                Right {} -> pure (),
+      testCaseSteps "tiger error testcases" $ \step -> do
+        tests <- TigerTests.errorTestCases
+        forM_ tests $ \(f, s) -> do
+          step f
+          case parse f s of
+            Left err -> assertFailure err
+            Right e ->
+              case transProg e of
+                Left err' -> pure ()
+                Right {} -> assertFailure "expected failure"
     ]
