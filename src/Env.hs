@@ -1,6 +1,7 @@
-module Env (EnvEntry (..), prelude) where
+module Env (EnvEntry (..), prelude, preludeTag) where
 
 import Control.Monad.State
+import Data.Map (Map)
 import Data.Map qualified as M
 import Symbol
 import Types (Ty)
@@ -11,13 +12,28 @@ data EnvEntry
   | FunEntry [Ty] Ty
   deriving (Eq, Show, Ord)
 
-prelude :: (SymTable EnvEntry, SymTable Ty)
-prelude = flip evalState initTag $ (,) <$> funsM <*> typesM
-  where
-    mkTable :: [(String, a)] -> State Tag (SymTable a)
-    mkTable m = SymTable . M.fromList <$> mapM (\(s, ty) -> (,ty) <$> newSym s) m
+prelude :: ((Map String Symbol, SymTable EnvEntry), (Map String Symbol, SymTable Ty))
+prelude = fst prelude'
 
-    funsM :: State Tag (SymTable EnvEntry)
+preludeTag :: Tag
+preludeTag = snd prelude'
+
+prelude' :: (((Map String Symbol, SymTable EnvEntry), (Map String Symbol, SymTable Ty)), Tag)
+prelude' = flip runState initTag $ (,) <$> funsM <*> typesM
+  where
+    mkTable :: [(String, a)] -> State Tag (Map String Symbol, SymTable a)
+    mkTable m = do
+      (sym_map, table_map) <-
+        unzip
+          <$> mapM
+            ( \(s, a) -> do
+                sym <- newSym s
+                pure ((s, sym), (sym, a))
+            )
+            m
+      pure (M.fromList sym_map, SymTable $ M.fromList table_map)
+
+    funsM :: State Tag (Map String Symbol, SymTable EnvEntry)
     funsM =
       mkTable
         [ ("print", FunEntry [Ty.String] Ty.Unit),
@@ -31,7 +47,7 @@ prelude = flip evalState initTag $ (,) <$> funsM <*> typesM
           ("not", FunEntry [Ty.Int] Ty.Int),
           ("exit", FunEntry [Ty.Int] Ty.Unit)
         ]
-    typesM :: State Tag (SymTable Ty)
+    typesM :: State Tag (Map String Symbol, SymTable Ty)
     typesM =
       mkTable
         [ ("int", Ty.Int),

@@ -43,16 +43,17 @@ instance Monoid Env where
 initEnv :: Env
 initEnv =
   Env
-    { envVal = prelude_val,
-      envTy = prelude_ty,
-      envSym = mempty
+    { envVal = val_tys,
+      envTy = ty_tys,
+      envSym = val_syms <> ty_syms
     }
   where
-    (prelude_val, prelude_ty) = prelude
+    ((val_syms, val_tys), (ty_syms, ty_tys)) = prelude
 
 data Error
   = InvalidType Ty (Set Ty) SourcePos
   | UndefinedVar String SourcePos
+  | UndefinedSymbol String SourcePos
   | UndefinedFun String SourcePos
   | UndefinedType String SourcePos
   | Error String SourcePos
@@ -92,7 +93,7 @@ lookupSym' :: String -> SourcePos -> TransM Symbol
 lookupSym' s pos = do
   msym <- lookupSym s
   case msym of
-    Nothing -> throwError $ UndefinedVar s pos
+    Nothing -> throwError $ UndefinedSymbol s pos
     Just sym -> pure sym
 
 lookupVar :: Symbol -> TransM (Maybe Ty)
@@ -135,7 +136,7 @@ withSym s m = do
       local (\env -> env {envSym = M.insert s sym $ envSym env}) $ m sym
 
 transProg :: UntypedExp -> Either Error (Exp ::: Ty)
-transProg e = fst <$> evalRWST (runTransM $ transExp e) initEnv initTag
+transProg e = fst <$> evalRWST (runTransM $ transExp e) initEnv preludeTag
 
 transVar :: UntypedVar -> TransM (Var ::: Ty)
 transVar (SimpleVar s pos) = do
@@ -251,36 +252,23 @@ transExp (ArrayExp t n e pos) = do
   t_sym <- lookupSym' t pos
   t' <- lookupTy' t_sym pos
   case elemType t' of
-    Nothing -> throwError $ InvalidType t' S.empty pos
+    Nothing -> do
+      s <- ask
+      error $
+        unlines
+          [ show t,
+            show t_sym,
+            show t',
+            show s
+          ]
+
+    -- throwError $ InvalidType t' S.empty pos
     Just elem_t -> do
       n' ::: n_t <- transExp n
       eqTypes pos n_t Int
       e' ::: e_t <- transExp e
       eqTypes pos e_t elem_t
       pure $ ArrayExp t_sym n' e' pos ::: t'
-
-transTy :: UntypedTy -> TransM (AST.Ty Symbol ::: Ty)
-transTy (NameTy s pos) = do
-  sym <- lookupSym' s pos
-  ty <- lookupTy' sym pos
-  pure $ NameTy sym pos ::: ty
-transTy (RecordTy fields) = do
-  fields' <- mapM transField fields
-  tag <- newTag
-  let ty_fields = map (\(AST.Field sym _ _ ::: ty) -> (sym, ty)) fields'
-      ty = Record ty_fields tag
-  pure $ RecordTy (map deannotate fields') ::: ty
-  where
-    transField :: UntypedField -> TransM (Field ::: Ty)
-    transField (AST.Field field ty_s pos) = do
-      field_sym <- newSym field
-      ty_sym <- lookupSym' ty_s pos
-      ty <- lookupTy' ty_sym pos
-      pure $ AST.Field field_sym ty_sym pos ::: ty
-transTy (ArrayTy s pos) = do
-  sym <- lookupSym' s pos
-  ty <- lookupTy' sym pos
-  pure $ ArrayTy sym pos ::: ty
 
 transDecs :: [UntypedDec] -> ([Dec] -> TransM a) -> TransM a
 transDecs ds m = transDecs' ds []
@@ -341,6 +329,30 @@ transDec (TypeDec decs) m =
       sty' ::: ty <- transTy sty
       withSym s $ \sym ->
         insertSym sym ty (transTypeDecs ds ((sym, sty', pos) : ds'))
+
+    transTy :: UntypedTy -> TransM (AST.Ty Symbol ::: Ty)
+    transTy (NameTy s pos) = do
+      sym <- lookupSym' s pos
+      ty <- lookupTy' sym pos
+      pure $ NameTy sym pos ::: ty
+    transTy (RecordTy fields) = do
+      fields' <- mapM transField fields
+      tag <- newTag
+      let ty_fields = map (\(AST.Field sym _ _ ::: ty) -> (sym, ty)) fields'
+          ty = Record ty_fields tag
+      pure $ RecordTy (map deannotate fields') ::: ty
+      where
+        transField :: UntypedField -> TransM (Field ::: Ty)
+        transField (AST.Field field ty_s pos) = do
+          field_sym <- newSym field
+          ty_sym <- lookupSym' ty_s pos
+          ty <- lookupTy' ty_sym pos
+          pure $ AST.Field field_sym ty_sym pos ::: ty
+    transTy (ArrayTy s pos) = do
+      sym <- lookupSym' s pos
+      ty <- lookupTy' sym pos
+      tag <- newTag
+      pure $ ArrayTy sym pos ::: Array ty tag
 
 validTypeAnnot :: Ty -> Ty -> Bool
 validTypeAnnot Nil (Record _ _) = True
