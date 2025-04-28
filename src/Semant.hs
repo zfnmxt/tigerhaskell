@@ -214,8 +214,6 @@ transExp (OpExp l op r pos) = do
           check_ rt [Int] pos
           pure $ OpExp l' op r' pos ::: Int
       | otherwise -> do
-          check_ lt [Int, String] pos
-          check_ rt [Int, String] pos
           when (l_ty /= r_ty) $
             throwError $
               InvalidType r_ty (S.singleton l_ty) pos
@@ -253,7 +251,9 @@ transExp (IfExp c t mf pos) = do
   eqTypes pos c_t Int
   t' ::: t_t <- transExp t
   mf' <- case mf of
-    Nothing -> pure Nothing
+    Nothing -> do
+      eqTypes pos t_t Nil
+      pure Nothing
     Just f -> do
       f' ::: f_t <- transExp f
       eqTypes pos t_t f_t
@@ -263,6 +263,7 @@ transExp (WhileExp c b pos) = do
   c' ::: c_t <- transExp c
   eqTypes pos c_t Int
   b' ::: b_t <- transExp b
+  eqTypes pos b_t Nil
   pure $ WhileExp c' b' pos ::: b_t
 transExp (ForExp i from to b pos) = do
   from' ::: from_t <- transExp from
@@ -343,7 +344,11 @@ transDec (FunctionDec decs) m =
 transDec (VarDec s mty e pos) m = do
   e' ::: e_ty <- transExp e
   mtyt <- case mty of
-    Nothing -> pure Nothing
+    Nothing -> do
+      when (e_ty == Nil) $
+        throwError $
+          Error "nil expressions must be cosntrained by record types" pos
+      pure Nothing
     Just (ty_s, ty_pos) -> do
       ty_sym <- lookupSym' ty_s ty_pos
       ty <- lookupTy' ty_sym ty_pos
@@ -357,39 +362,64 @@ transDec (VarDec s mty e pos) m = do
 transDec (TypeDec decs) m =
   withHeaders decs
   where
-    withHeaders [] = m =<< TypeDec <$> mapM transTypeDec decs
+    withHeaders [] = transTypeDecs decs []
     withHeaders ((s, sty, pos) : ds) = do
       withSym s $ \sym ->
         insertSym sym (Name sym Nothing) (withHeaders ds)
 
-    transTypeDec (s, sty, pos) = do
+    transTypeDecs [] ds' = transTypeDecs2 (reverse ds') []
+    transTypeDecs ((s, sty, pos) : ds) ds' = do
       sym <- lookupSym' s pos
-      sty' ::: ty <- transTy sty
-      pure (sym, sty', pos)
+      transTy sty $ \(sty' ::: ty) ->
+        insertSym sym ty $
+          transTypeDecs ds $
+            (s, sty, pos) : ds'
 
-    transTy :: UntypedTy -> TransM (AST.Ty Symbol ::: Ty)
-    transTy (NameTy s pos) = do
+    transTypeDecs2 [] ds' = m $ TypeDec $ reverse ds'
+    transTypeDecs2 ((s, sty, pos) : ds) ds' = do
+      sym <- lookupSym' s pos
+      transTy sty $ \(sty' ::: ty) -> do
+        when (isNameType ty) $
+          throwError $
+            Error "illegal mutually recursive type cycle" pos
+        insertSym sym ty $
+          transTypeDecs2 ds $
+            (sym, sty', pos) : ds'
+
+    transTy :: UntypedTy -> (AST.Ty Symbol ::: Ty -> TransM a) -> TransM a
+    transTy (NameTy s pos) m = do
       sym <- lookupSym' s pos
       ty <- lookupTy' sym pos
-      pure $ NameTy sym pos ::: ty
-    transTy (RecordTy fields) = do
-      fields' <- mapM transField fields
-      tag <- newTag
-      let ty_fields = map (\(AST.Field sym _ _ ::: ty) -> (sym, ty)) fields'
-          ty = Record ty_fields tag
-      pure $ RecordTy (map deannotate fields') ::: ty
+      m $ NameTy sym pos ::: ty
+    transTy (RecordTy fields) m = do
+      withFields fields [] $ \fields' -> do
+        tag <- newTag
+        let ty_fields = map (\(AST.Field sym _ _ ::: ty) -> (sym, ty)) fields'
+            ty = Record ty_fields tag
+        m $ RecordTy (map deannotate fields') ::: ty
       where
-        transField :: UntypedField -> TransM (Field ::: Ty)
-        transField (AST.Field field ty_s pos) = do
-          field_sym <- newSym field
-          ty_sym <- lookupSym' ty_s pos
-          ty <- lookupTy' ty_sym pos
-          pure $ AST.Field field_sym ty_sym pos ::: ty
-    transTy (ArrayTy s pos) = do
+        withFields ::
+          [UntypedField] ->
+          [Field ::: Ty] ->
+          ([Field ::: Ty] -> TransM a) ->
+          TransM a
+        withFields [] fs' n =
+          n $ reverse fs'
+        withFields (f : fs) fs' n =
+          transField f $ \f' ->
+            withFields fs (f' : fs') n
+
+        transField :: UntypedField -> (Field ::: Ty -> TransM a) -> TransM a
+        transField (AST.Field field ty_s pos) n =
+          withSym field $ \field_sym -> do
+            ty_sym <- lookupSym' ty_s pos
+            ty <- lookupTy' ty_sym pos
+            n $ AST.Field field_sym ty_sym pos ::: ty
+    transTy (ArrayTy s pos) m = do
       sym <- lookupSym' s pos
       ty <- lookupTy' sym pos
       tag <- newTag
-      pure $ ArrayTy sym pos ::: Array ty tag
+      m $ ArrayTy sym pos ::: Array ty tag
 
 validTypeAnnot :: Ty -> Ty -> Bool
 validTypeAnnot Nil (Record _ _) = True

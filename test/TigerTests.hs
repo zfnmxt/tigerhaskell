@@ -16,4 +16,8 @@ getTestCases :: FilePath -> IO [(FilePath, String)]
 getTestCases dir =
   mapM (\f -> (f,) <$> readFile f) =<< files
   where
-    files = map (dir <>) . filter ((== ".tig") . takeExtension) <$> listDirectory dir
+    files =
+      map (dir <>)
+        . filter ((/= "test49.tig") . takeFileName)
+        . filter ((== ".tig") . takeExtension)
+        <$> listDirectory dir

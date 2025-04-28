@@ -364,8 +364,8 @@ pAtom = do
           let pFields =
                 choice
                   [ between (symbol_ "{") (symbol_ "}") $
-                      (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ",",
-                    lKeyword "nil" *> pure mempty
+                      (withSrcPos $ (,,) <$> lId <*> (symbol_ "=" *> pExp)) `sepBy` symbol_ ","
+                      -- lKeyword "nil" *> pure mempty
                   ]
            in RecordExp x <$> pFields
 

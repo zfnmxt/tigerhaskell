@@ -4,6 +4,7 @@ module Types
     fieldType,
     recordFields,
     elemType,
+    isNameType,
   )
 where
 
@@ -42,3 +43,7 @@ elemType :: Ty -> Maybe Ty
 elemType (Array t _) = Just t
 elemType (Name _ (Just t)) = elemType t
 elemType _ = Nothing
+
+isNameType :: Ty -> Bool
+isNameType Name {} = True
+isNameType _ = False
