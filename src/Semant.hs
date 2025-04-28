@@ -291,30 +291,36 @@ transDecs ds m = transDecs' ds []
         transDecs' ds (d' : ds')
 
 transDec :: UntypedDec -> (Dec -> TransM a) -> TransM a
-transDec (FunctionDec (AST.FunDec f params mrt body pos)) next = do
-  (params', body' ::: body_ty) <-
-    withParams params $ \params' -> (params',) <$> transExp body
-  mrt' <-
-    case mrt of
-      Nothing -> pure Nothing
-      Just (rt_s, pos) -> do
-        rt_sym <- lookupSym' rt_s pos
-        rt <- lookupTy' rt_sym pos
-        checkTypeAnnot pos body_ty rt
-        pure $ Just (rt_sym, pos)
-  withSym f $ \f' ->
-    insertSym f' (FunEntry (map typeOf params') body_ty) $
-      next (FunctionDec $ AST.FunDec f' (map deannotate params') mrt' body' pos)
+transDec (FunctionDec decs) m =
+  transFunDecs decs []
   where
-    withParams :: [UntypedField] -> ([Field ::: Ty] -> TransM a) -> TransM a
-    withParams ps m = withParams' ps []
+    transFunDecs [] ds' = m $ FunctionDec ds'
+    transFunDecs (AST.FunDec f params mrt body pos : ds) ds' = do
+      (params', body' ::: body_ty) <-
+        withParams params $ \params' -> (params',) <$> transExp body
+      mrt' <-
+        case mrt of
+          Nothing -> pure Nothing
+          Just (rt_s, pos) -> do
+            rt_sym <- lookupSym' rt_s pos
+            rt <- lookupTy' rt_sym pos
+            checkTypeAnnot pos body_ty rt
+            pure $ Just (rt_sym, pos)
+      withSym f $ \f' ->
+        insertSym f' (FunEntry (map typeOf params') body_ty) $
+          transFunDecs ds (AST.FunDec f' (map deannotate params') mrt' body' pos : ds')
       where
-        withParams' [] fs' = m fs'
-        withParams' (AST.Field field ty_s pos : fs) fs' =
-          withSym field $ \field' -> do
-            ty_sym <- lookupSym' ty_s pos
-            ty <- lookupTy' ty_sym pos
-            insertSym field' (VarEntry ty) $ withParams' fs (AST.Field field' ty_sym pos ::: ty : fs')
+        -- next (FunctionDec $ AST.FunDec f' (map deannotate params') mrt' body' pos)
+
+        withParams :: [UntypedField] -> ([Field ::: Ty] -> TransM a) -> TransM a
+        withParams ps m = withParams' ps []
+          where
+            withParams' [] fs' = m fs'
+            withParams' (AST.Field field ty_s pos : fs) fs' =
+              withSym field $ \field' -> do
+                ty_sym <- lookupSym' ty_s pos
+                ty <- lookupTy' ty_sym pos
+                insertSym field' (VarEntry ty) $ withParams' fs (AST.Field field' ty_sym pos ::: ty : fs')
 transDec (VarDec s mty e pos) m = do
   e' ::: e_ty <- transExp e
   mtyt <- case mty of
@@ -329,10 +335,14 @@ transDec (VarDec s mty e pos) m = do
       sym
       (VarEntry e_ty)
       (m $ VarDec sym mtyt e' pos)
-transDec (TypeDec s sty pos) m = do
-  sty' ::: ty <- transTy sty
-  withSym s $ \sym ->
-    insertSym sym ty (m $ TypeDec sym sty' pos)
+transDec (TypeDec decs) m =
+  transTypeDecs decs []
+  where
+    transTypeDecs [] ds' = m $ TypeDec ds'
+    transTypeDecs ((s, sty, pos) : ds) ds' = do
+      sty' ::: ty <- transTy sty
+      withSym s $ \sym ->
+        insertSym sym ty (transTypeDecs ds ((sym, sty', pos) : ds'))
 
 validTypeAnnot :: Ty -> Ty -> Bool
 validTypeAnnot Nil (Record _ _) = True

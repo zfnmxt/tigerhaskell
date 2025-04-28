@@ -58,9 +58,9 @@ data Exp s
 -- spec in the book.  Anything can be mutually recursive with anything else in
 -- scope.
 data Dec s
-  = FunctionDec (FunDec s)
+  = FunctionDec [FunDec s]
   | VarDec s (Maybe (s, SourcePos)) (Exp s) SourcePos
-  | TypeDec s (Ty s) SourcePos
+  | TypeDec [(s, Ty s, SourcePos)]
   deriving (Show, Eq, Ord)
 
 data Ty s

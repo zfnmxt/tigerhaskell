@@ -209,9 +209,9 @@ pField = withSrcPos $ Field <$> lId <* symbol ":" <*> lId
 pDec :: Parser UntypedDec
 pDec =
   choice
-    [ FunctionDec <$> pFunDec,
+    [ FunctionDec <$> some pFunDec,
       pVarDec,
-      pTypeDec
+      TypeDec <$> some pTypeDec
     ]
   where
     pVarDec = withSrcPos $ do
@@ -229,14 +229,13 @@ pDec =
       type_id <- lId
       symbol_ "="
       ty <- pTy
-      pure $ \pos -> TypeDec type_id ty pos
+      pure $ \pos -> (type_id, ty, pos)
 
-pFunDec :: Parser UntypedFunDec
-pFunDec = withSrcPos $ do
-  lKeyword "function"
-  FunDec <$> lId <*> pFields <*> pTyAnnot <*> (symbol_ "=" *> pExp)
-  where
-    pFields = between (symbol_ "(") (symbol_ ")") $ sepBy pField (symbol ",")
+    pFunDec = withSrcPos $ do
+      lKeyword "function"
+      FunDec <$> lId <*> pFields <*> pTyAnnot <*> (symbol_ "=" *> pExp)
+      where
+        pFields = between (symbol_ "(") (symbol_ ")") $ sepBy pField (symbol ",")
 
 pTy :: Parser UntypedTy
 pTy =
