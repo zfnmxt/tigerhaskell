@@ -310,8 +310,6 @@ transDec (FunctionDec decs) m =
         insertSym f' (FunEntry (map typeOf params') body_ty) $
           transFunDecs ds (AST.FunDec f' (map deannotate params') mrt' body' pos : ds')
       where
-        -- next (FunctionDec $ AST.FunDec f' (map deannotate params') mrt' body' pos)
-
         withParams :: [UntypedField] -> ([Field ::: Ty] -> TransM a) -> TransM a
         withParams ps m = withParams' ps []
           where
