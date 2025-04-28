@@ -1,11 +1,13 @@
 module Types
   ( Ty (..),
     isRecord,
+    fieldType,
     recordFields,
     elemType,
   )
 where
 
+import AST qualified
 import Symbol
 import Prelude hiding (Int, String)
 
@@ -24,6 +26,11 @@ isRecord (Record {}) = True
 isRecord Nil = True
 isRecord (Name s (Just t)) = isRecord t
 isRecord _ = False
+
+fieldType :: Symbol -> Ty -> Maybe Ty
+fieldType field (Record fields _) = lookup field fields
+fieldType field (Name _ (Just t)) = fieldType field t
+fieldType _ _ = Nothing
 
 recordFields :: Ty -> Maybe [(Symbol, Ty)]
 recordFields (Record fields _) = pure fields

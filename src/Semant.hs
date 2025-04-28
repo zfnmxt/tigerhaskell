@@ -143,6 +143,35 @@ transVar (SimpleVar s pos) = do
   v <- lookupSym' s pos
   ty <- lookupVar' v pos
   pure $ SimpleVar v pos ::: ty
+transVar (FieldVar v field pos) = do
+  v' ::: v_t <- transVar v
+  field' <- lookupSym' field pos
+  case fieldType field' v_t of
+    Nothing ->
+      throwError $
+        Error
+          ( "Type "
+              <> show v_t
+              <> " isn't a record with field "
+              <> show field
+              <> "."
+          )
+          pos
+    Just field_t ->
+      pure $ FieldVar v' field' pos ::: field_t
+transVar (SubscriptVar v i pos) = do
+  v' ::: v_t <- transVar v
+  i' ::: i_t <- transExp i
+  case elemType v_t of
+    Nothing ->
+      throwError $
+        Error
+          ( "Type " <> show v_t <> " isn't an array."
+          )
+          pos
+    Just e_t -> do
+      eqTypes pos i_t Int
+      pure $ SubscriptVar v' i' pos ::: e_t
 
 check_ :: (a ::: Ty) -> [Ty] -> SourcePos -> TransM ()
 check_ a tys pos = void $ check a tys pos
@@ -271,33 +300,46 @@ transDecs ds m = transDecs' ds []
 
 transDec :: UntypedDec -> (Dec -> TransM a) -> TransM a
 transDec (FunctionDec decs) m =
-  transFunDecs decs []
+  withHeaders decs
   where
-    transFunDecs [] ds' = m $ FunctionDec ds'
-    transFunDecs (AST.FunDec f params mrt body pos : ds) ds' = do
+    withHeaders [] = m =<< FunctionDec <$> mapM transFunDec decs
+    withHeaders (AST.FunDec f params mrt body pos : ds) = do
+      params' <- withParams params pure
+      body_ty <-
+        case mrt of
+          Nothing ->
+            pure Unit
+          Just (rt_s, pos) -> do
+            rt_sym <- lookupSym' rt_s pos
+            rt <- lookupTy' rt_sym pos
+            pure rt
+      withSym f $ \f' ->
+        insertSym f' (FunEntry (map typeOf params') body_ty) $
+          withHeaders ds
+
+    transFunDec (AST.FunDec f params mrt body pos) = do
+      f' <- lookupSym' f pos
+      (pts, rt) <- lookupFun' f' pos
       (params', body' ::: body_ty) <-
         withParams params $ \params' -> (params',) <$> transExp body
+      checkTypeAnnot pos body_ty rt
       mrt' <-
         case mrt of
           Nothing -> pure Nothing
           Just (rt_s, pos) -> do
             rt_sym <- lookupSym' rt_s pos
-            rt <- lookupTy' rt_sym pos
-            checkTypeAnnot pos body_ty rt
             pure $ Just (rt_sym, pos)
-      withSym f $ \f' ->
-        insertSym f' (FunEntry (map typeOf params') body_ty) $
-          transFunDecs ds (AST.FunDec f' (map deannotate params') mrt' body' pos : ds')
+      pure $ AST.FunDec f' (map deannotate params') mrt' body' pos
+
+    withParams :: [UntypedField] -> ([Field ::: Ty] -> TransM a) -> TransM a
+    withParams ps m = withParams' ps []
       where
-        withParams :: [UntypedField] -> ([Field ::: Ty] -> TransM a) -> TransM a
-        withParams ps m = withParams' ps []
-          where
-            withParams' [] fs' = m fs'
-            withParams' (AST.Field field ty_s pos : fs) fs' =
-              withSym field $ \field' -> do
-                ty_sym <- lookupSym' ty_s pos
-                ty <- lookupTy' ty_sym pos
-                insertSym field' (VarEntry ty) $ withParams' fs (AST.Field field' ty_sym pos ::: ty : fs')
+        withParams' [] fs' = m $ reverse fs'
+        withParams' (AST.Field field ty_s pos : fs) fs' =
+          withSym field $ \field' -> do
+            ty_sym <- lookupSym' ty_s pos
+            ty <- lookupTy' ty_sym pos
+            insertSym field' (VarEntry ty) $ withParams' fs (AST.Field field' ty_sym pos ::: ty : fs')
 transDec (VarDec s mty e pos) m = do
   e' ::: e_ty <- transExp e
   mtyt <- case mty of
