@@ -252,17 +252,8 @@ transExp (ArrayExp t n e pos) = do
   t_sym <- lookupSym' t pos
   t' <- lookupTy' t_sym pos
   case elemType t' of
-    Nothing -> do
-      s <- ask
-      error $
-        unlines
-          [ show t,
-            show t_sym,
-            show t',
-            show s
-          ]
-
-    -- throwError $ InvalidType t' S.empty pos
+    Nothing ->
+      throwError $ InvalidType t' S.empty pos
     Just elem_t -> do
       n' ::: n_t <- transExp n
       eqTypes pos n_t Int
