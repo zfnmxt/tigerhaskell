@@ -380,7 +380,7 @@ transDec (TypeDec decs) m =
             Nothing ->
               error $ "updateTy: error, unknown type: " <> show sym
             Just t@(Name {}) ->
-              throwError $ Error ("Recursive cycle involving " <> show t) Nothing
+              throwError $ Error ("recursive cycle involving " <> show t) Nothing
             Just t -> pure t
         updateTy t = pure t
 
