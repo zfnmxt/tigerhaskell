@@ -57,6 +57,7 @@ data Error
   | UndefinedFun String SourcePos
   | UndefinedType String SourcePos
   | Error String SourcePos
+  | Error' String
   deriving (Show, Eq)
 
 newtype TransM a = TransM {runTransM :: RWST Env () Tag (Either Error) a}
@@ -119,11 +120,19 @@ lookupFun' sym pos = do
 lookupTy :: Symbol -> TransM (Maybe Ty)
 lookupTy = askSym
 
+lookupTyNoCycle :: Symbol -> SourcePos -> TransM Ty
+lookupTyNoCycle sym pos = do
+  mty <- lookupTy sym
+  case mty of
+    Nothing -> throwError $ UndefinedType (symName sym) pos
+    Just ty -> pure ty
+
 lookupTy' :: Symbol -> SourcePos -> TransM Ty
 lookupTy' sym pos = do
   mty <- lookupTy sym
   case mty of
     Nothing -> throwError $ UndefinedType (symName sym) pos
+    Just (Name sym Nothing) -> lookupTy' sym pos
     Just ty -> pure ty
 
 withSym :: String -> (Symbol -> TransM a) -> TransM a
@@ -157,8 +166,9 @@ transVar (FieldVar v field pos) = do
               <> "."
           )
           pos
-    Just field_t ->
-      pure $ FieldVar v' field' pos ::: field_t
+    Just field_t -> do
+      field_t' <- unpack field_t
+      pure $ FieldVar v' field' pos ::: field_t'
 transVar (SubscriptVar v i pos) = do
   v' ::: v_t <- transVar v
   i' ::: i_t <- transExp i
@@ -214,9 +224,7 @@ transExp (OpExp l op r pos) = do
           check_ rt [Int] pos
           pure $ OpExp l' op r' pos ::: Int
       | otherwise -> do
-          when (l_ty /= r_ty) $
-            throwError $
-              InvalidType r_ty (S.singleton l_ty) pos
+          eqTypes pos l_ty r_ty
           pure $ OpExp l' op r' pos ::: Int
 transExp (RecordExp t fields pos) = do
   t_sym <- lookupSym' t pos
@@ -228,7 +236,8 @@ transExp (RecordExp t fields pos) = do
         \((_, f_ty), (field, e, f_pos)) -> do
           field_sym <- lookupSym' field f_pos
           e' ::: e_ty <- transExp e
-          checkTypeAnnot pos e_ty f_ty
+          -- fix
+          -- checkTypeAnnot pos e_ty f_ty
           pure (field_sym, e', pos)
       pure $ RecordExp t_sym fields' pos ::: t
 transExp (SeqExp es) = do
@@ -245,14 +254,14 @@ transExp (AssignExp v e pos) = do
   v' ::: v_t <- transVar v
   e' ::: e_t <- transExp e
   checkTypeAnnot pos e_t v_t
-  pure $ AssignExp v' e' pos ::: v_t
+  pure $ AssignExp v' e' pos ::: Unit
 transExp (IfExp c t mf pos) = do
   c' ::: c_t <- transExp c
   eqTypes pos c_t Int
   t' ::: t_t <- transExp t
   mf' <- case mf of
     Nothing -> do
-      eqTypes pos t_t Nil
+      eqTypes pos t_t Unit
       pure Nothing
     Just f -> do
       f' ::: f_t <- transExp f
@@ -263,7 +272,7 @@ transExp (WhileExp c b pos) = do
   c' ::: c_t <- transExp c
   eqTypes pos c_t Int
   b' ::: b_t <- transExp b
-  eqTypes pos b_t Nil
+  eqTypes pos b_t Unit
   pure $ WhileExp c' b' pos ::: b_t
 transExp (ForExp i from to b pos) = do
   from' ::: from_t <- transExp from
@@ -367,29 +376,105 @@ transDec (TypeDec decs) m =
       withSym s $ \sym ->
         insertSym sym (Name sym Nothing) (withHeaders ds)
 
-    transTypeDecs [] ds' = transTypeDecs2 (reverse ds') []
+    transTypeDecs [] ds' = do
+      ety <- asks envTy
+      ety' <- traverse updateTy ety
+      local (\env -> env {envTy = ety}) $
+        m $
+          TypeDec $
+            reverse ds'
     transTypeDecs ((s, sty, pos) : ds) ds' = do
       sym <- lookupSym' s pos
       transTy sty $ \(sty' ::: ty) ->
         insertSym sym ty $
           transTypeDecs ds $
-            (s, sty, pos) : ds'
-
-    transTypeDecs2 [] ds' = m $ TypeDec $ reverse ds'
-    transTypeDecs2 ((s, sty, pos) : ds) ds' = do
-      sym <- lookupSym' s pos
-      transTy sty $ \(sty' ::: ty) -> do
-        when (isNameType ty) $
-          throwError $
-            Error "illegal mutually recursive type cycle" pos
-        insertSym sym ty $
-          transTypeDecs2 ds $
             (sym, sty', pos) : ds'
+
+    updateTy :: Ty -> TransM (Ty)
+    -- updateTy (Record fields tags) = do
+    -- fields' <- forM fields $ \(field, ty) -> (field,) <$> updateTy ty
+    -- pure $ Record fields' tags
+    -- updateTy (Array t tag) = Array <$> updateTy t <*> pure tag
+    updateTy (Name sym Nothing) = do
+      mt <- lookupTy sym
+      case mt of
+        Nothing -> error "oops"
+        Just (Name {}) -> throwError $ Error' "recursive cycle"
+        Just t -> pure $ Name sym (Just t) -- Name sym . Just <$> updateTy t
+        -- updateTy (Name sym (Just t)) =
+        --  (Name sym . Just) <$> updateTy t
+    updateTy t = pure t
+
+    -- updateTypes :: AST.Ty Symbol ::: Ty -> TransM (AST.Ty Symbol ::: Ty)
+    -- updateTypes (NameTy sym pos ::: ty) =
+    --  (NameTy sym pos :::) <$> updateTy ty
+    -- updateTypes (RecordTy fields ::: ty) =
+
+    -- transTypeDecs [] ds' = transTypeDecs2 (reverse ds') []
+    -- transTypeDecs ((s, sty, pos) : ds) ds' = do
+    --  sym <- lookupSym' s pos
+    --  transTy sty $ \(sty' ::: ty) ->
+    --    insertSym sym ty $
+    --      transTypeDecs ds $
+    --        (s, sty, pos) : ds'
+
+    -- transTypeDecs2 [] ds' = m $ TypeDec $ reverse ds'
+    -- transTypeDecs2 ((s, sty, pos) : ds) ds' = do
+    --  sym <- lookupSym' s pos
+    --  transTy2 sym sty $ \(sty' ::: ty) -> do
+    --    when (isNameType ty) $
+    --      throwError $
+    --        Error "illegal mutually recursive type cycle" pos
+    --    insertSym sym ty $
+    --      transTypeDecs2 ds $
+    --        (sym, sty', pos) : ds'
+
+    -- transTy2 ::
+    --  Symbol ->
+    --  AST.Ty Symbol ->
+    --  (AST.Ty Symbol ::: Ty -> TransM a) ->
+    --  TransM a
+    -- transTy2 _ (NameTy s pos) m = do
+    --  sym <- lookupSym' s pos
+    --  ty <- lookupTy' sym pos
+    --  m $ NameTy sym pos ::: ty
+    -- transTy2 sym (RecordTy fields) m = do
+    --  withFields fields [] $ \fields' -> do
+    --    mty <- lookupTy sym
+    --    case mty of
+    --      Just (Record _ tag) -> do
+    --        let ty_fields = map (\(AST.Field sym _ _ ::: ty) -> (sym, ty)) fields'
+    --            ty = Record ty_fields tag
+    --        m $ RecordTy (map deannotate fields') ::: ty
+    --      _ -> error $ show mty
+    --  where
+    --    withFields ::
+    --      [UntypedField] ->
+    --      [Field ::: Ty] ->
+    --      ([Field ::: Ty] -> TransM a) ->
+    --      TransM a
+    --    withFields [] fs' n =
+    --      n $ reverse fs'
+    --    withFields (f : fs) fs' n =
+    --      transField f $ \f' ->
+    --        withFields fs (f' : fs') n
+
+    --    transField :: UntypedField -> (Field ::: Ty -> TransM a) -> TransM a
+    --    transField (AST.Field field ty_s pos) n = do
+    --      field_sym <- lookupSym' field pos
+    --      ty_sym <- lookupSym' ty_s pos
+    --      ty <- lookupTy' ty_sym pos
+    --      n $ AST.Field field_sym ty_sym pos ::: ty
+    -- transTy2 _ (ArrayTy s pos) m = do
+    --  sym <- lookupSym' s pos
+    --  ty <- lookupTy' sym pos
+    --  tag <- newTag
+    --  m $ ArrayTy sym pos ::: Array ty tag
 
     transTy :: UntypedTy -> (AST.Ty Symbol ::: Ty -> TransM a) -> TransM a
     transTy (NameTy s pos) m = do
       sym <- lookupSym' s pos
-      ty <- lookupTy' sym pos
+      ty <- lookupTyNoCycle sym pos
       m $ NameTy sym pos ::: ty
     transTy (RecordTy fields) m = do
       withFields fields [] $ \fields' -> do
@@ -413,11 +498,11 @@ transDec (TypeDec decs) m =
         transField (AST.Field field ty_s pos) n =
           withSym field $ \field_sym -> do
             ty_sym <- lookupSym' ty_s pos
-            ty <- lookupTy' ty_sym pos
+            ty <- lookupTyNoCycle ty_sym pos
             n $ AST.Field field_sym ty_sym pos ::: ty
     transTy (ArrayTy s pos) m = do
       sym <- lookupSym' s pos
-      ty <- lookupTy' sym pos
+      ty <- lookupTyNoCycle sym pos
       tag <- newTag
       m $ ArrayTy sym pos ::: Array ty tag
 
@@ -433,6 +518,20 @@ checkTypeAnnot pos e_ty ty =
 
 eqTypes :: SourcePos -> Ty -> Ty -> TransM ()
 eqTypes pos t1 t2 =
-  unless (t1 == t2) $
+  unless (okTypes t1 t2) $
     throwError $
       InvalidType t1 (S.singleton t2) pos
+  where
+    okTypes Record {} Nil = True
+    okTypes Nil Record {} = True
+    okTypes t1 t2 = t1 == t2
+
+unpack :: Ty -> TransM Ty
+unpack (Name sym Nothing) = do
+  mty <- lookupTy sym
+  case mty of
+    Just (Name sym Nothing) -> unpack (Name sym Nothing)
+    Just (Name sym (Just t)) -> error "lol"
+    Just t -> pure t
+    Nothing -> throwError $ Error' "unpack"
+unpack t = pure t

@@ -56,7 +56,7 @@ instance (Monad m, MonadState Tag m) => MonadSym m where
   putSymTag = put
 
 newtype SymTable a = SymTable {symTable :: Map Symbol a}
-  deriving (Show, Eq, Ord, Semigroup, Monoid)
+  deriving (Show, Eq, Ord, Semigroup, Monoid, Functor, Foldable, Traversable)
 
 class (Monad m) => MonadSymTable m a where
   askSymTable :: m (SymTable a)
