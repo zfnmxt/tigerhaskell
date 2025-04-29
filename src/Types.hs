@@ -10,6 +10,7 @@ module Types
 where
 
 import AST qualified
+import Control.Monad.Trans.Maybe
 import Symbol
 import Prelude hiding (Int, String)
 

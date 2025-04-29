@@ -5,24 +5,21 @@ import AST qualified as AST
 import Control.Monad
 import Control.Monad.Error.Class
 import Control.Monad.RWS
+import Control.Monad.Trans.Except
+import Control.Monad.Trans.Maybe
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as S
 import Env
 import Symbol
-import Translate qualified
 import Types
 
 type Var = AST.Var Symbol
 
 type Exp = AST.Exp Symbol
 
-type ASTTy = AST.Ty Symbol
-
 type Dec = AST.Dec Symbol
-
-type FunDec = AST.FunDec Symbol
 
 type Field = AST.Field Symbol
 
@@ -56,7 +53,7 @@ data Error
   | Error String (Maybe SourcePos)
   deriving (Show, Eq)
 
-newtype TransM a = TransM {runTransM :: RWST Env () Tag (Either Error) a}
+newtype TransM a = TransM {runTransM :: ExceptT Error (RWS Env () Tag) a}
   deriving
     ( Functor,
       Applicative,
@@ -109,14 +106,12 @@ lookupFun sym pos = do
 
 lookupTy :: Symbol -> Maybe SourcePos -> TransM Ty
 lookupTy sym pos = do
-  mty <- askSym sym
+  mty <-
+    runMaybeT $
+      MaybeT . unpack =<< MaybeT (askSym sym)
   case mty of
-    Nothing -> throwError $ Undefined (symName sym) pos
-    Just ty -> do
-      mty <- unpack ty
-      case mty of
-        Nothing -> throwError $ Undefined (symName sym) Nothing
-        Just ty -> pure ty
+    Nothing -> throwError $ Undefined (symName sym) Nothing
+    Just ty -> pure ty
 
 lookupTyNoUnpack :: Symbol -> Maybe SourcePos -> TransM Ty
 lookupTyNoUnpack sym pos = do
@@ -135,7 +130,7 @@ withSym s m = do
       local (\env -> env {envSym = M.insert s sym $ envSym env}) $ m sym
 
 transProg :: UntypedExp -> Either Error (Exp ::: Ty)
-transProg e = fst <$> evalRWST (runTransM $ transExp e) initEnv preludeTag
+transProg e = fst $ (evalRWS $ runExceptT $ runTransM $ transExp e) initEnv preludeTag
 
 transVar :: UntypedVar -> TransM (Var ::: Ty)
 transVar (SimpleVar s pos) = do
@@ -164,13 +159,11 @@ transVar (SubscriptVar v i pos) = do
   i' ::: i_t <- transExp i
   case elemType v_t of
     Nothing ->
-      throwError
-        $ Error
-          ( "Type " <> show v_t <> " isn't an array."
-          )
-        $ Just pos
+      throwError $
+        Error ("Type " <> show v_t <> " isn't an array.") $
+          Just pos
     Just e_t -> do
-      eqTypes pos i_t Int
+      compatTypes pos i_t Int
       pure $ SubscriptVar v' i' pos ::: e_t
 
 check_ :: (a ::: Ty) -> [Ty] -> SourcePos -> TransM ()
@@ -202,7 +195,7 @@ transExp (CallExp f args pos) = do
           <> " were given."
       )
     $ Just pos
-  void $ zipWithM (checkTypeAnnot pos) (map typeOf args') pts
+  void $ zipWithM (compatTypes pos) (map typeOf args') pts
   pure $ CallExp f' (map deannotate args') pos ::: rt
 transExp (OpExp l op r pos) = do
   lt@(l' ::: l_ty) <- transExp l
@@ -214,7 +207,7 @@ transExp (OpExp l op r pos) = do
           check_ rt [Int] pos
           pure $ OpExp l' op r' pos ::: Int
       | otherwise -> do
-          eqTypes pos l_ty r_ty
+          compatTypes pos l_ty r_ty
           pure $ OpExp l' op r' pos ::: Int
 transExp (RecordExp t fields pos) = do
   t_sym <- lookupSym' t $ Just pos
@@ -227,7 +220,7 @@ transExp (RecordExp t fields pos) = do
           field_sym <- lookupSym' field $ Just f_pos
           e' ::: e_ty <- transExp e
           -- fix
-          -- checkTypeAnnot pos e_ty f_ty
+          -- compatTypes pos e_ty f_ty
           pure (field_sym, e', pos)
       pure $ RecordExp t_sym fields' pos ::: t
 transExp (SeqExp es) = do
@@ -243,32 +236,32 @@ transExp (SeqExp es) = do
 transExp (AssignExp v e pos) = do
   v' ::: v_t <- transVar v
   e' ::: e_t <- transExp e
-  checkTypeAnnot pos e_t v_t
+  compatTypes pos e_t v_t
   pure $ AssignExp v' e' pos ::: Unit
 transExp (IfExp c t mf pos) = do
   c' ::: c_t <- transExp c
-  eqTypes pos c_t Int
+  compatTypes pos c_t Int
   t' ::: t_t <- transExp t
   mf' <- case mf of
     Nothing -> do
-      eqTypes pos t_t Unit
+      compatTypes pos t_t Unit
       pure Nothing
     Just f -> do
       f' ::: f_t <- transExp f
-      eqTypes pos t_t f_t
+      compatTypes pos t_t f_t
       pure $ Just f'
   pure $ IfExp c' t' mf' pos ::: t_t
 transExp (WhileExp c b pos) = do
   c' ::: c_t <- transExp c
-  eqTypes pos c_t Int
+  compatTypes pos c_t Int
   b' ::: b_t <- transExp b
-  eqTypes pos b_t Unit
+  compatTypes pos b_t Unit
   pure $ WhileExp c' b' pos ::: b_t
 transExp (ForExp i from to b pos) = do
   from' ::: from_t <- transExp from
-  eqTypes pos from_t Int
+  compatTypes pos from_t Int
   to' ::: to_t <- transExp to
-  eqTypes pos to_t Int
+  compatTypes pos to_t Int
   withSym i $ \i_sym -> do
     b' ::: b_t <- insertSym i_sym (VarEntry Int) $ transExp b
     pure $ ForExp i_sym from' to' b' pos ::: b_t
@@ -285,9 +278,9 @@ transExp (ArrayExp t n e pos) = do
       throwError $ InvalidType t' S.empty pos
     Just elem_t -> do
       n' ::: n_t <- transExp n
-      eqTypes pos n_t Int
+      compatTypes pos n_t Int
       e' ::: e_t <- transExp e
-      eqTypes pos e_t elem_t
+      compatTypes pos e_t elem_t
       pure $ ArrayExp t_sym n' e' pos ::: t'
 
 transDecs :: [UntypedDec] -> ([Dec] -> TransM a) -> TransM a
@@ -322,7 +315,7 @@ transDec (FunctionDec decs) m =
       (pts, rt) <- lookupFun f' $ Just pos
       (params', body' ::: body_ty) <-
         withParams params $ \params' -> (params',) <$> transExp body
-      checkTypeAnnot pos body_ty rt
+      compatTypes pos body_ty rt
       mrt' <-
         case mrt of
           Nothing -> pure Nothing
@@ -352,7 +345,7 @@ transDec (VarDec s mty e pos) m = do
     Just (ty_s, ty_pos) -> do
       ty_sym <- lookupSym' ty_s $ Just ty_pos
       ty <- lookupTy ty_sym $ Just ty_pos
-      checkTypeAnnot ty_pos e_ty ty
+      compatTypes ty_pos e_ty ty
       pure $ Just (ty_sym, ty_pos)
   withSym s $ \sym ->
     insertSym
@@ -426,18 +419,8 @@ transDec (TypeDec decs) m =
       tag <- newTag
       m $ ArrayTy sym pos ::: Array ty tag
 
-validTypeAnnot :: Ty -> Ty -> Bool
-validTypeAnnot Nil (Record _ _) = True
-validTypeAnnot e_ty ty = ty == e_ty
-
-checkTypeAnnot :: SourcePos -> Ty -> Ty -> TransM ()
-checkTypeAnnot pos e_ty ty =
-  unless (e_ty `validTypeAnnot` ty) $
-    throwError $
-      InvalidType e_ty (S.singleton ty) pos
-
-eqTypes :: SourcePos -> Ty -> Ty -> TransM ()
-eqTypes pos t1 t2 =
+compatTypes :: SourcePos -> Ty -> Ty -> TransM ()
+compatTypes pos t1 t2 =
   unless (okTypes t1 t2) $
     throwError $
       InvalidType t1 (S.singleton t2) pos
