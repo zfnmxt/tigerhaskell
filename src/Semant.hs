@@ -112,6 +112,22 @@ lookupTy sym pos = do
   mty <- askSym sym
   case mty of
     Nothing -> throwError $ Undefined (symName sym) pos
+    Just ty -> unpack ty
+
+unpack :: Ty -> TransM Ty
+unpack (Name sym) = do
+  mty <- askSym sym
+  case mty of
+    Just (Name sym') -> unpack (Name sym')
+    Just t -> pure t
+    Nothing -> throwError $ Undefined (symName sym) Nothing
+unpack t = pure t
+
+lookupTyNoUnpack :: Symbol -> Maybe SourcePos -> TransM Ty
+lookupTyNoUnpack sym pos = do
+  mty <- askSym sym
+  case mty of
+    Nothing -> throwError $ Undefined (symName sym) pos
     Just ty -> pure ty
 
 withSym :: String -> (Symbol -> TransM a) -> TransM a
@@ -354,13 +370,11 @@ transDec (TypeDec decs) m =
     withHeaders [] = transTypeDecs decs []
     withHeaders ((s, sty, pos) : ds) = do
       withSym s $ \sym ->
-        insertSym sym (Name sym Nothing) (withHeaders ds)
+        insertSym sym (Name sym) (withHeaders ds)
 
     transTypeDecs [] ds' = do
-      updateTyTable $
-        m $
-          TypeDec $
-            reverse ds'
+      checkTyTable
+      m $ TypeDec $ reverse ds'
     transTypeDecs ((s, sty, pos) : ds) ds' = do
       sym <- lookupSym' s $ Just pos
       transTy sty $ \(sty' ::: ty) ->
@@ -368,26 +382,24 @@ transDec (TypeDec decs) m =
           transTypeDecs ds $
             (sym, sty', pos) : ds'
 
-    updateTyTable :: TransM a -> TransM a
-    updateTyTable m = do
-      ety <- traverse updateTy =<< asks envTy
-      local (\env -> env {envTy = ety}) m
+    checkTyTable :: TransM ()
+    checkTyTable =
+      void $ traverse checkTy =<< asks envTy
       where
-        updateTy :: Ty -> TransM Ty
-        updateTy (Name sym Nothing) = do
+        checkTy (Name sym) = do
           mt <- askSym sym
           case mt of
             Nothing ->
-              error $ "updateTy: error, unknown type: " <> show sym
+              error $ "checkTy: error, unknown type: " <> show sym
             Just t@(Name {}) ->
               throwError $ Error ("recursive cycle involving " <> show t) Nothing
-            Just t -> pure t
-        updateTy t = pure t
+            _ -> pure ()
+        checkTy _ = pure ()
 
     transTy :: UntypedTy -> (AST.Ty Symbol ::: Ty -> TransM a) -> TransM a
     transTy (NameTy s pos) m = do
       sym <- lookupSym' s $ Just pos
-      ty <- lookupTy sym $ Just pos
+      ty <- lookupTyNoUnpack sym $ Just pos
       m $ NameTy sym pos ::: ty
     transTy (RecordTy fields) m = do
       withFields fields [] $ \fields' -> do
@@ -411,11 +423,11 @@ transDec (TypeDec decs) m =
         transField (AST.Field field ty_s pos) n =
           withSym field $ \field_sym -> do
             ty_sym <- lookupSym' ty_s $ Just pos
-            ty <- lookupTy ty_sym $ Just pos
+            ty <- lookupTyNoUnpack ty_sym $ Just pos
             n $ AST.Field field_sym ty_sym pos ::: ty
     transTy (ArrayTy s pos) m = do
       sym <- lookupSym' s $ Just pos
-      ty <- lookupTy sym $ Just pos
+      ty <- lookupTyNoUnpack sym $ Just pos
       tag <- newTag
       m $ ArrayTy sym pos ::: Array ty tag
 
@@ -438,13 +450,3 @@ eqTypes pos t1 t2 =
     okTypes Record {} Nil = True
     okTypes Nil Record {} = True
     okTypes t1 t2 = t1 == t2
-
-unpack :: Ty -> TransM Ty
-unpack (Name sym Nothing) = do
-  mty <- askSym sym
-  case mty of
-    Just (Name sym Nothing) -> unpack (Name sym Nothing)
-    Just (Name sym (Just t)) -> error "lol"
-    Just t -> pure t
-    Nothing -> throwError $ Error "unpack" Nothing
-unpack t = pure t
