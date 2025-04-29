@@ -52,12 +52,8 @@ initEnv =
 
 data Error
   = InvalidType Ty (Set Ty) SourcePos
-  | UndefinedVar String SourcePos
-  | UndefinedSymbol String SourcePos
-  | UndefinedFun String SourcePos
-  | UndefinedType String SourcePos
-  | Error String SourcePos
-  | Error' String
+  | Undefined String (Maybe SourcePos)
+  | Error String (Maybe SourcePos)
   deriving (Show, Eq)
 
 newtype TransM a = TransM {runTransM :: RWST Env () Tag (Either Error) a}
@@ -81,58 +77,41 @@ instance MonadSymTable TransM Ty where
 
 data (:::) a b = a ::: b
 
-typeOf :: (a ::: b) -> b
-typeOf (_ ::: b) = b
-
 deannotate :: (a ::: b) -> a
 deannotate (a ::: _) = a
+
+typeOf :: (a ::: b) -> b
+typeOf (_ ::: b) = b
 
 lookupSym :: String -> TransM (Maybe Symbol)
 lookupSym s = (M.!? s) <$> asks envSym
 
-lookupSym' :: String -> SourcePos -> TransM Symbol
+lookupSym' :: String -> Maybe SourcePos -> TransM Symbol
 lookupSym' s pos = do
   msym <- lookupSym s
   case msym of
-    Nothing -> throwError $ UndefinedSymbol s pos
+    Nothing -> throwError $ Undefined s pos
     Just sym -> pure sym
 
-lookupVar :: Symbol -> TransM (Maybe Ty)
-lookupVar = askSym
-
-lookupVar' :: Symbol -> SourcePos -> TransM Ty
-lookupVar' sym pos = do
+lookupVar :: Symbol -> Maybe SourcePos -> TransM Ty
+lookupVar sym pos = do
   mentry <- askSym sym
   case mentry of
     Just (VarEntry ty) -> pure ty
-    _ -> throwError $ UndefinedVar (symName sym) pos
+    _ -> throwError $ Undefined (symName sym) pos
 
-lookupFun :: Symbol -> TransM (Maybe Ty)
-lookupFun = askSym
-
-lookupFun' :: Symbol -> SourcePos -> TransM ([Ty], Ty)
-lookupFun' sym pos = do
+lookupFun :: Symbol -> Maybe SourcePos -> TransM ([Ty], Ty)
+lookupFun sym pos = do
   mentry <- askSym sym
   case mentry of
     Just (FunEntry pts rt) -> pure (pts, rt)
-    _ -> throwError $ UndefinedFun (symName sym) pos
+    _ -> throwError $ Undefined (symName sym) pos
 
-lookupTy :: Symbol -> TransM (Maybe Ty)
-lookupTy = askSym
-
-lookupTyNoCycle :: Symbol -> SourcePos -> TransM Ty
-lookupTyNoCycle sym pos = do
-  mty <- lookupTy sym
+lookupTy :: Symbol -> Maybe SourcePos -> TransM Ty
+lookupTy sym pos = do
+  mty <- askSym sym
   case mty of
-    Nothing -> throwError $ UndefinedType (symName sym) pos
-    Just ty -> pure ty
-
-lookupTy' :: Symbol -> SourcePos -> TransM Ty
-lookupTy' sym pos = do
-  mty <- lookupTy sym
-  case mty of
-    Nothing -> throwError $ UndefinedType (symName sym) pos
-    Just (Name sym Nothing) -> lookupTy' sym pos
+    Nothing -> throwError $ Undefined (symName sym) pos
     Just ty -> pure ty
 
 withSym :: String -> (Symbol -> TransM a) -> TransM a
@@ -149,23 +128,23 @@ transProg e = fst <$> evalRWST (runTransM $ transExp e) initEnv preludeTag
 
 transVar :: UntypedVar -> TransM (Var ::: Ty)
 transVar (SimpleVar s pos) = do
-  v <- lookupSym' s pos
-  ty <- lookupVar' v pos
+  v <- lookupSym' s $ Just pos
+  ty <- lookupVar v $ Just pos
   pure $ SimpleVar v pos ::: ty
 transVar (FieldVar v field pos) = do
   v' ::: v_t <- transVar v
-  field' <- lookupSym' field pos
+  field' <- lookupSym' field $ Just pos
   case fieldType field' v_t of
     Nothing ->
-      throwError $
-        Error
+      throwError
+        $ Error
           ( "Type "
               <> show v_t
               <> " isn't a record with field "
               <> show field
               <> "."
           )
-          pos
+        $ Just pos
     Just field_t -> do
       field_t' <- unpack field_t
       pure $ FieldVar v' field' pos ::: field_t'
@@ -174,11 +153,11 @@ transVar (SubscriptVar v i pos) = do
   i' ::: i_t <- transExp i
   case elemType v_t of
     Nothing ->
-      throwError $
-        Error
+      throwError
+        $ Error
           ( "Type " <> show v_t <> " isn't an array."
           )
-          pos
+        $ Just pos
     Just e_t -> do
       eqTypes pos i_t Int
       pure $ SubscriptVar v' i' pos ::: e_t
@@ -199,19 +178,19 @@ transExp NilExp = pure $ NilExp ::: Nil
 transExp (IntExp i pos) = pure $ IntExp i pos ::: Int
 transExp (StringExp s pos) = pure $ StringExp s pos ::: String
 transExp (CallExp f args pos) = do
-  f' <- lookupSym' f pos
-  (pts, rt) <- lookupFun' f' pos
+  f' <- lookupSym' f $ Just pos
+  (pts, rt) <- lookupFun f' $ Just pos
   args' <- mapM transExp args
-  unless (length pts == length args) $
-    throwError $
-      Error
-        ( "Function expects "
-            <> show (length pts)
-            <> " arguments, but "
-            <> show (length args)
-            <> " were given."
-        )
-        pos
+  unless (length pts == length args)
+    $ throwError
+    $ Error
+      ( "Function expects "
+          <> show (length pts)
+          <> " arguments, but "
+          <> show (length args)
+          <> " were given."
+      )
+    $ Just pos
   void $ zipWithM (checkTypeAnnot pos) (map typeOf args') pts
   pure $ CallExp f' (map deannotate args') pos ::: rt
 transExp (OpExp l op r pos) = do
@@ -227,14 +206,14 @@ transExp (OpExp l op r pos) = do
           eqTypes pos l_ty r_ty
           pure $ OpExp l' op r' pos ::: Int
 transExp (RecordExp t fields pos) = do
-  t_sym <- lookupSym' t pos
-  t <- lookupTy' t_sym pos
+  t_sym <- lookupSym' t $ Just pos
+  t <- lookupTy t_sym $ Just pos
   case recordFields t of
     Nothing -> throwError $ InvalidType t S.empty pos
     Just t_fields -> do
       fields' <- forM (zip t_fields fields) $
         \((_, f_ty), (field, e, f_pos)) -> do
-          field_sym <- lookupSym' field f_pos
+          field_sym <- lookupSym' field $ Just f_pos
           e' ::: e_ty <- transExp e
           -- fix
           -- checkTypeAnnot pos e_ty f_ty
@@ -288,8 +267,8 @@ transExp (LetExp decs e pos) = do
     (decs',) <$> transExp e
   pure $ LetExp decs' e' pos ::: t
 transExp (ArrayExp t n e pos) = do
-  t_sym <- lookupSym' t pos
-  t' <- lookupTy' t_sym pos
+  t_sym <- lookupSym' t $ Just pos
+  t' <- lookupTy t_sym $ Just pos
   case elemType t' of
     Nothing ->
       throwError $ InvalidType t' S.empty pos
@@ -320,16 +299,16 @@ transDec (FunctionDec decs) m =
           Nothing ->
             pure Unit
           Just (rt_s, pos) -> do
-            rt_sym <- lookupSym' rt_s pos
-            rt <- lookupTy' rt_sym pos
+            rt_sym <- lookupSym' rt_s $ Just pos
+            rt <- lookupTy rt_sym $ Just pos
             pure rt
       withSym f $ \f' ->
         insertSym f' (FunEntry (map typeOf params') body_ty) $
           withHeaders ds
 
     transFunDec (AST.FunDec f params mrt body pos) = do
-      f' <- lookupSym' f pos
-      (pts, rt) <- lookupFun' f' pos
+      f' <- lookupSym' f $ Just pos
+      (pts, rt) <- lookupFun f' $ Just pos
       (params', body' ::: body_ty) <-
         withParams params $ \params' -> (params',) <$> transExp body
       checkTypeAnnot pos body_ty rt
@@ -337,7 +316,7 @@ transDec (FunctionDec decs) m =
         case mrt of
           Nothing -> pure Nothing
           Just (rt_s, pos) -> do
-            rt_sym <- lookupSym' rt_s pos
+            rt_sym <- lookupSym' rt_s $ Just pos
             pure $ Just (rt_sym, pos)
       pure $ AST.FunDec f' (map deannotate params') mrt' body' pos
 
@@ -347,8 +326,8 @@ transDec (FunctionDec decs) m =
         withParams' [] fs' = m $ reverse fs'
         withParams' (AST.Field field ty_s pos : fs) fs' =
           withSym field $ \field' -> do
-            ty_sym <- lookupSym' ty_s pos
-            ty <- lookupTy' ty_sym pos
+            ty_sym <- lookupSym' ty_s $ Just pos
+            ty <- lookupTy ty_sym $ Just pos
             insertSym field' (VarEntry ty) $ withParams' fs (AST.Field field' ty_sym pos ::: ty : fs')
 transDec (VarDec s mty e pos) m = do
   e' ::: e_ty <- transExp e
@@ -356,11 +335,12 @@ transDec (VarDec s mty e pos) m = do
     Nothing -> do
       when (e_ty == Nil) $
         throwError $
-          Error "nil expressions must be cosntrained by record types" pos
+          Error "nil expressions must be cosntrained by record types" $
+            Just pos
       pure Nothing
     Just (ty_s, ty_pos) -> do
-      ty_sym <- lookupSym' ty_s ty_pos
-      ty <- lookupTy' ty_sym ty_pos
+      ty_sym <- lookupSym' ty_s $ Just ty_pos
+      ty <- lookupTy ty_sym $ Just ty_pos
       checkTypeAnnot ty_pos e_ty ty
       pure $ Just (ty_sym, ty_pos)
   withSym s $ \sym ->
@@ -377,32 +357,37 @@ transDec (TypeDec decs) m =
         insertSym sym (Name sym Nothing) (withHeaders ds)
 
     transTypeDecs [] ds' = do
-      ety <- asks envTy
-      ety' <- traverse updateTy ety
-      local (\env -> env {envTy = ety}) $
+      updateTyTable $
         m $
           TypeDec $
             reverse ds'
     transTypeDecs ((s, sty, pos) : ds) ds' = do
-      sym <- lookupSym' s pos
+      sym <- lookupSym' s $ Just pos
       transTy sty $ \(sty' ::: ty) ->
         insertSym sym ty $
           transTypeDecs ds $
             (sym, sty', pos) : ds'
 
-    updateTy :: Ty -> TransM (Ty)
-    updateTy (Name sym Nothing) = do
-      mt <- lookupTy sym
-      case mt of
-        Nothing -> error "oops"
-        Just (Name {}) -> throwError $ Error' "recursive cycle"
-        Just t -> pure $ Name sym (Just t)
-    updateTy t = pure t
+    updateTyTable :: TransM a -> TransM a
+    updateTyTable m = do
+      ety <- traverse updateTy =<< asks envTy
+      local (\env -> env {envTy = ety}) m
+      where
+        updateTy :: Ty -> TransM Ty
+        updateTy (Name sym Nothing) = do
+          mt <- askSym sym
+          case mt of
+            Nothing ->
+              error $ "updateTy: error, unknown type: " <> show sym
+            Just t@(Name {}) ->
+              throwError $ Error ("Recursive cycle involving " <> show t) Nothing
+            Just t -> pure t
+        updateTy t = pure t
 
     transTy :: UntypedTy -> (AST.Ty Symbol ::: Ty -> TransM a) -> TransM a
     transTy (NameTy s pos) m = do
-      sym <- lookupSym' s pos
-      ty <- lookupTyNoCycle sym pos
+      sym <- lookupSym' s $ Just pos
+      ty <- lookupTy sym $ Just pos
       m $ NameTy sym pos ::: ty
     transTy (RecordTy fields) m = do
       withFields fields [] $ \fields' -> do
@@ -425,12 +410,12 @@ transDec (TypeDec decs) m =
         transField :: UntypedField -> (Field ::: Ty -> TransM a) -> TransM a
         transField (AST.Field field ty_s pos) n =
           withSym field $ \field_sym -> do
-            ty_sym <- lookupSym' ty_s pos
-            ty <- lookupTyNoCycle ty_sym pos
+            ty_sym <- lookupSym' ty_s $ Just pos
+            ty <- lookupTy ty_sym $ Just pos
             n $ AST.Field field_sym ty_sym pos ::: ty
     transTy (ArrayTy s pos) m = do
-      sym <- lookupSym' s pos
-      ty <- lookupTyNoCycle sym pos
+      sym <- lookupSym' s $ Just pos
+      ty <- lookupTy sym $ Just pos
       tag <- newTag
       m $ ArrayTy sym pos ::: Array ty tag
 
@@ -456,10 +441,10 @@ eqTypes pos t1 t2 =
 
 unpack :: Ty -> TransM Ty
 unpack (Name sym Nothing) = do
-  mty <- lookupTy sym
+  mty <- askSym sym
   case mty of
     Just (Name sym Nothing) -> unpack (Name sym Nothing)
     Just (Name sym (Just t)) -> error "lol"
     Just t -> pure t
-    Nothing -> throwError $ Error' "unpack"
+    Nothing -> throwError $ Error "unpack" Nothing
 unpack t = pure t
