@@ -218,10 +218,13 @@ transExp (RecordExp t fields pos) = do
       fields' <- forM (zip t_fields fields) $
         \((_, f_ty), (field, e, f_pos)) -> do
           field_sym <- lookupSym' field $ Just f_pos
-          e' ::: e_ty <- transExp e
-          -- fix
-          -- compatTypes pos e_ty f_ty
-          pure (field_sym, e', pos)
+          mf_ty' <- unpack f_ty
+          case mf_ty' of
+            Nothing -> throwError $ Undefined (show f_ty) $ Just f_pos
+            Just f_ty' -> do
+              e' ::: e_ty <- transExp e
+              compatTypes pos e_ty f_ty'
+              pure (field_sym, e', pos)
       pure $ RecordExp t_sym fields' pos ::: t
 transExp (SeqExp es) = do
   es' <- mapM (transExp . fst) es
