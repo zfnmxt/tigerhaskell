@@ -112,16 +112,11 @@ lookupTy sym pos = do
   mty <- askSym sym
   case mty of
     Nothing -> throwError $ Undefined (symName sym) pos
-    Just ty -> unpack ty
-
-unpack :: Ty -> TransM Ty
-unpack (Name sym) = do
-  mty <- askSym sym
-  case mty of
-    Just (Name sym') -> unpack (Name sym')
-    Just t -> pure t
-    Nothing -> throwError $ Undefined (symName sym) Nothing
-unpack t = pure t
+    Just ty -> do
+      mty <- unpack ty
+      case mty of
+        Nothing -> throwError $ Undefined (symName sym) Nothing
+        Just ty -> pure ty
 
 lookupTyNoUnpack :: Symbol -> Maybe SourcePos -> TransM Ty
 lookupTyNoUnpack sym pos = do
@@ -150,7 +145,8 @@ transVar (SimpleVar s pos) = do
 transVar (FieldVar v field pos) = do
   v' ::: v_t <- transVar v
   field' <- lookupSym' field $ Just pos
-  case fieldType field' v_t of
+  mfield_t <- fieldType field' v_t
+  case mfield_t of
     Nothing ->
       throwError
         $ Error
@@ -162,8 +158,7 @@ transVar (FieldVar v field pos) = do
           )
         $ Just pos
     Just field_t -> do
-      field_t' <- unpack field_t
-      pure $ FieldVar v' field' pos ::: field_t'
+      pure $ FieldVar v' field' pos ::: field_t
 transVar (SubscriptVar v i pos) = do
   v' ::: v_t <- transVar v
   i' ::: i_t <- transExp i

@@ -1,6 +1,7 @@
 module Types
   ( Ty (..),
     isRecord,
+    unpack,
     fieldType,
     recordFields,
     elemType,
@@ -27,9 +28,22 @@ isRecord (Record {}) = True
 isRecord Nil = True
 isRecord _ = False
 
-fieldType :: Symbol -> Ty -> Maybe Ty
-fieldType field (Record fields _) = lookup field fields
-fieldType _ _ = Nothing
+unpack :: (MonadSymTable m Ty) => Ty -> m (Maybe Ty)
+unpack (Name sym) = do
+  mty <- askSym sym
+  case mty of
+    Just (Name sym') -> unpack (Name sym')
+    Just t -> pure $ Just t
+    Nothing -> pure Nothing
+unpack t = pure $ Just t
+
+fieldType :: (MonadSymTable m Ty) => Symbol -> Ty -> m (Maybe Ty)
+fieldType field (Record fields _) = do
+  let mty = lookup field fields
+  case mty of
+    Nothing -> pure Nothing
+    Just ty -> unpack ty
+fieldType _ _ = pure Nothing
 
 recordFields :: Ty -> Maybe [(Symbol, Ty)]
 recordFields (Record fields _) = pure fields
