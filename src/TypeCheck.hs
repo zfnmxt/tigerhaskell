@@ -166,14 +166,6 @@ checkVar (SubscriptVar v i pos) = do
       compatTypes pos i_t Int
       pure $ SubscriptVar v' i' pos ::: e_t
 
-check_ :: (a ::: Ty) -> [Ty] -> SourcePos -> TypeCheckM ()
-check_ a tys pos = void $ check a tys pos
-
-check :: (a ::: Ty) -> [Ty] -> SourcePos -> TypeCheckM Ty
-check a tys pos
-  | typeOf a `elem` tys = pure $ typeOf a
-  | otherwise = throwError $ InvalidType (typeOf a) (S.fromList tys) pos
-
 checkExp :: UntypedExp -> TypeCheckM (Exp ::: Ty)
 checkExp (VarExp v) = do
   v' ::: v_ty <- checkVar v
@@ -203,12 +195,17 @@ checkExp (OpExp l op r pos) = do
   case op of
     _
       | op `elem` [PlusOp, MinusOp, TimesOp, DivideOp] -> do
-          check_ lt [Int] pos
-          check_ rt [Int] pos
+          check lt [Int] pos
+          check rt [Int] pos
           pure $ OpExp l' op r' pos ::: Int
       | otherwise -> do
           compatTypes pos l_ty r_ty
           pure $ OpExp l' op r' pos ::: Int
+  where
+    check :: (a ::: Ty) -> [Ty] -> SourcePos -> TypeCheckM Ty
+    check a tys pos
+      | typeOf a `elem` tys = pure $ typeOf a
+      | otherwise = throwError $ InvalidType (typeOf a) (S.fromList tys) pos
 checkExp (RecordExp t fields pos) = do
   t_sym <- lookupSym' t $ Just pos
   t <- lookupTy t_sym $ Just pos
