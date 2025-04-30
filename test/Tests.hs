@@ -1,15 +1,15 @@
 module Main (main) where
 
 import ParserTests qualified
-import SemantTests qualified
 import Test.Tasty
+import TypeCheckTests qualified
 
 tests :: TestTree
 tests =
   testGroup
     "all tests"
     [ ParserTests.tests,
-      SemantTests.tests
+      TypeCheckTests.tests
     ]
 
 main :: IO ()

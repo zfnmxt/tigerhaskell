@@ -1,3 +1,13 @@
-module Translate (Exp) where
+{-# LANGUAGE MultiParamTypeClasses #-}
 
-type Exp = ()
+module Translate () where
+
+import Frame
+import Symbol
+
+-- newtype Level = Level Int
+--   deriving (Show, Eq, Ord)
+--
+-- class Translate level access where
+--  outermost :: level
+--  newLevel :: Level ->

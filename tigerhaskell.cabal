@@ -23,9 +23,12 @@ library
           Parser
           Symbol
           Types
+          TypeCheck
           Semant
           Env
           Translate
+          Temp
+          Frame
 
         build-depends:
           base,
