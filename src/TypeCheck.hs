@@ -1,4 +1,12 @@
-module TypeCheck (checkProg, (:::) (..)) where
+module TypeCheck
+  ( checkProg,
+    (:::) (..),
+    Var,
+    Exp,
+    Dec,
+    Field,
+  )
+where
 
 import AST hiding (Dec, Exp, Field, FunDec, Ty, Var)
 import AST qualified as AST
