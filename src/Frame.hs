@@ -1,14 +1,22 @@
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeFamilies #-}
 
-module Frame (Frame (..)) where
+module Frame
+  ( Escape,
+    Frame (..),
+  )
+where
 
-import Temp
+import Temp qualified
 
-class Frame frame access | frame -> access where
-  newFrame :: Label -> [Bool] -> frame
-  name :: frame -> Label
-  formals :: frame -> [access]
-  allocLocal :: frame -> Bool -> access
+type Escape = Bool
+
+class Frame frame where
+  data Access frame :: *
+  newFrame :: Temp.Label -> [Escape] -> frame
+  name :: frame -> Temp.Label
+  formals :: frame -> [Access frame]
+  allocLocal :: frame -> Escape -> Access frame
 
 -- class MonadFrame frame access m where
 --  newFrame :: Label -> [Bool] -> m frame
