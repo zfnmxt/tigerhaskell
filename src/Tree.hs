@@ -11,7 +11,7 @@ import Temp qualified
 import Prelude hiding (seq)
 
 data Exp
-  = Const Int
+  = Const Integer
   | Name Temp.Label
   | Temp Temp.Temp
   | BinOp BinOp Exp Exp
@@ -65,4 +65,4 @@ instance Num Exp where
   negate = BinOp Minus 0
   abs = undefined
   signum = undefined
-  fromInteger = Const . fromInteger
+  fromInteger = Const

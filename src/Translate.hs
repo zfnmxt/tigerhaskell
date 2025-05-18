@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Translate
@@ -9,9 +10,15 @@ module Translate
     formals,
     allocLocal,
     Escape,
+    Exp,
+    simpleVar,
+    fieldAccess,
+    subscriptAccess,
+    constant,
   )
 where
 
+import Data.Proxy
 import Frame
   ( Escape,
     Frame,
@@ -22,19 +29,21 @@ import Temp qualified
 import Tree qualified as T
 
 data Level f = Level
-  { levelNum :: Int,
-    levelFrame :: f
+  { levelNum :: Integer,
+    levelFrame :: f,
+    levelParent :: Maybe (Level f)
   }
 
-deriving instance (Show f) => Show (Level f)
+instance Eq (Level f) where
+  (Level l1 _ _) == (Level l2 _ _) = l1 == l2
 
-deriving instance (Eq f) => Eq (Level f)
+deriving instance (Show f) => Show (Level f)
 
 deriving instance (Ord f) => Ord (Level f)
 
 data Access f = Access
   { accessLevel :: Level f,
-    accessFrameAccess :: Frame.Access f
+    accessFrame :: Frame.Access f
   }
 
 deriving instance (Show f, Show (Frame.Access f)) => Show (Access f)
@@ -47,7 +56,8 @@ outermost :: (Frame f) => Level f
 outermost =
   Level
     { levelNum = 0,
-      levelFrame = undefined
+      levelFrame = undefined,
+      levelParent = Nothing
     }
 
 newLevel :: (Frame f) => Level f -> Temp.Label -> [Escape] -> Level f
@@ -55,7 +65,8 @@ newLevel parent name formals =
   let frame = Frame.newFrame name (True : formals)
    in Level
         { levelNum = levelNum parent + 1,
-          levelFrame = frame
+          levelFrame = frame,
+          levelParent = Just parent
         }
 
 formals :: (Frame f) => Level f -> [Access f]
@@ -66,7 +77,7 @@ allocLocal :: (Frame f) => Level f -> Escape -> Access f
 allocLocal lvl escape =
   Access
     { accessLevel = lvl,
-      accessFrameAccess = Frame.allocLocal (levelFrame lvl) escape
+      accessFrame = Frame.allocLocal (levelFrame lvl) escape
     }
 
 data Exp
@@ -110,3 +121,30 @@ unCx (Ex 1) = pure $ \t _ -> T.Jump (T.Name t) [t]
 unCx (Ex e) = pure $ T.CJump T.NE e 0
 unCx (Nx _) = error "unCx: Nx isn't supported."
 unCx (Cx mkStm) = pure mkStm
+
+simpleVar :: forall frame. (Frame frame) => Access frame -> Level frame -> Exp
+simpleVar access lvl =
+  Ex $ Frame.exp (accessFrame access) (stackFrame access lvl)
+  where
+    stackFrame access' lvl'
+      | accessLevel access' == lvl' = T.Temp (Frame.fP (Proxy @frame))
+      | otherwise =
+          case levelParent lvl' of
+            Nothing -> error "simpleVar: no parent."
+            Just parent ->
+              stackFrame access' parent
+                + T.Mem (Frame.staticLink (levelFrame lvl'))
+
+fieldAccess :: (MonadSym m) => Exp -> Integer -> Integer -> m Exp
+fieldAccess record field size = do
+  record' <- unEx record
+  pure $ Ex $ record' + fromInteger field * fromInteger size
+
+subscriptAccess :: (MonadSym m) => Exp -> Exp -> Integer -> m Exp
+subscriptAccess array offset size = do
+  array' <- unEx array
+  offset' <- unEx offset
+  pure $ Ex $ array' + offset' * fromInteger size
+
+constant :: Integer -> Exp
+constant = Ex . T.Const

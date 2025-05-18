@@ -4,6 +4,7 @@ module Types
     unpack,
     fieldType,
     recordFields,
+    fieldNumber,
     elemType,
     isNameType,
   )
@@ -50,6 +51,16 @@ recordFields :: Ty -> Maybe [(Symbol, Ty)]
 recordFields (Record fields _) = pure fields
 recordFields Nil = pure mempty
 recordFields _ = mempty
+
+fieldNumber :: Ty -> Symbol -> Maybe Integer
+fieldNumber (Record fields _) field =
+  fieldNumber' fields field
+  where
+    fieldNumber' [] _ = Nothing
+    fieldNumber' ((f, _) : fs) field
+      | f == field = Just 0
+      | otherwise = fmap (+ 1) $ fieldNumber' fs field
+fieldNumber _ _ = Nothing
 
 elemType :: Ty -> Maybe Ty
 elemType (Array t _) = Just t

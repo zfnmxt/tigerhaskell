@@ -20,10 +20,12 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Proxy
 import Data.Set (Set)
 import Data.Set qualified as S
 import Env
 import Frame (Frame, X86)
+import Frame qualified
 import Symbol
 import Temp qualified
 import Translate qualified
@@ -119,11 +121,11 @@ lookupSym' s pos = do
     Nothing -> throwError $ Undefined s pos
     Just sym -> pure sym
 
-lookupVar :: forall frame. (Frame frame) => Symbol -> Maybe SourcePos -> TransM frame Ty
+lookupVar :: forall frame. (Frame frame) => Symbol -> Maybe SourcePos -> TransM frame (Translate.Access frame, Ty)
 lookupVar sym pos = do
   (mentry :: Maybe (EnvEntry frame)) <- askSym sym
   case mentry of
-    Just (VarEntry _ ty) -> pure ty
+    Just (VarEntry frame ty) -> pure (frame, ty)
     _ -> throwError $ Undefined (symName sym) pos
 
 lookupFun :: forall frame. (Frame frame) => Symbol -> Maybe SourcePos -> TransM frame ([Ty], Ty)
@@ -158,20 +160,29 @@ withSym s m = do
       sym <- newSym s
       local (\env -> env {envSym = M.insert s sym $ envSym env}) $ m sym
 
-transProg :: UntypedExp -> Either Error (Exp ::: Ty)
+transProg :: UntypedExp -> Either Error (Exp ::: Ty, Translate.Exp)
 transProg e = fst $ (evalRWS $ runExceptT $ runTransM $ (transExp @X86) e) initEnv preludeTag
 
-transVar :: (Frame frame) => UntypedVar -> TransM frame (Var ::: Ty)
+transVar ::
+  forall frame.
+  (Frame frame) =>
+  UntypedVar ->
+  TransM frame (Var ::: Ty, Translate.Exp)
 transVar (SimpleVar s pos) = do
   v <- lookupSym' s $ Just pos
-  ty <- lookupVar v $ Just pos
-  pure $ SimpleVar v pos ::: ty
+  (access, ty) <- lookupVar v $ Just pos
+  v_tree <- Translate.simpleVar access <$> asks envLevel
+  pure (SimpleVar v pos ::: ty, v_tree)
 transVar (FieldVar v field pos) = do
-  v' ::: v_t <- transVar v
+  (v' ::: v_t, v_tree) <- transVar v
   field' <- lookupSym' field $ Just pos
   mfield_t <- fieldType field' v_t
-  case mfield_t of
-    Nothing ->
+  case (mfield_t, fieldNumber v_t field') of
+    (Just field_t, Just offset) -> do
+      field_tree <-
+        Translate.fieldAccess v_tree offset (Frame.wordSize (Proxy @frame))
+      pure (FieldVar v' field' pos ::: field_t, field_tree)
+    _ ->
       throwError
         $ Error
           ( "Type "
@@ -181,11 +192,9 @@ transVar (FieldVar v field pos) = do
               <> "."
           )
         $ Just pos
-    Just field_t -> do
-      pure $ FieldVar v' field' pos ::: field_t
 transVar (SubscriptVar v i pos) = do
-  v' ::: v_t <- transVar v
-  i' ::: i_t <- transExp i
+  (v' ::: v_t, v_tree) <- transVar v
+  (i' ::: i_t, i_tree) <- transExp i
   case elemType v_t of
     Nothing ->
       throwError $
@@ -193,12 +202,17 @@ transVar (SubscriptVar v i pos) = do
           Just pos
     Just e_t -> do
       compatTypes pos i_t Int
-      pure $ SubscriptVar v' i' pos ::: e_t
+      subscript_tree <-
+        Translate.subscriptAccess v_tree i_tree (Frame.wordSize (Proxy @frame))
+      pure (SubscriptVar v' i' pos ::: e_t, subscript_tree)
 
-transExp :: (Frame frame) => UntypedExp -> TransM frame (Exp ::: Ty)
+transExp ::
+  (Frame frame) =>
+  UntypedExp ->
+  TransM frame (Exp ::: Ty, Translate.Exp)
 transExp (VarExp v) = do
-  v' ::: v_ty <- transVar v
-  pure $ VarExp v' ::: v_ty
+  (v' ::: v_ty, v_tree) <- transVar v
+  pure (VarExp v' ::: v_ty, v_tree)
 transExp NilExp = pure $ NilExp ::: Nil
 transExp (IntExp i pos) = pure $ IntExp i pos ::: Int
 transExp (StringExp s pos) = pure $ StringExp s pos ::: String

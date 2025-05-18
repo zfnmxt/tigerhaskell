@@ -8,7 +8,9 @@ module Frame
   )
 where
 
+import Data.Proxy
 import Temp qualified
+import Tree
 
 type Escape = Bool
 
@@ -18,6 +20,10 @@ class Frame frame where
   name :: frame -> Temp.Label
   formals :: frame -> [Access frame]
   allocLocal :: frame -> Escape -> Access frame
+  fP :: Proxy frame -> Temp.Temp
+  wordSize :: Proxy frame -> Integer
+  exp :: Access frame -> Tree.Exp -> Tree.Exp
+  staticLink :: frame -> Tree.Exp
 
 data X86
 
