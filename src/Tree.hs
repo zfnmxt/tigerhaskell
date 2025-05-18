@@ -1,6 +1,14 @@
-module Tree where
+module Tree
+  ( Exp (..),
+    Stm (..),
+    BinOp (..),
+    RelOp (..),
+    seq,
+  )
+where
 
 import Temp qualified
+import Prelude hiding (seq)
 
 data Exp
   = Const Int
@@ -46,3 +54,15 @@ data RelOp
   | UGT
   | UGE
   deriving (Show, Eq, Ord)
+
+seq :: [Stm] -> Stm
+seq = foldr Seq (Exp $ Const 0)
+
+instance Num Exp where
+  (+) = BinOp Plus
+  (-) = BinOp Minus
+  (*) = BinOp Mul
+  negate = BinOp Minus 0
+  abs = undefined
+  signum = undefined
+  fromInteger = Const . fromInteger

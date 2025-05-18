@@ -19,6 +19,7 @@ import Frame
 import Frame qualified
 import Symbol
 import Temp qualified
+import Tree qualified as T
 
 data Level f = Level
   { levelNum :: Int,
@@ -67,3 +68,43 @@ allocLocal lvl escape =
     { accessLevel = lvl,
       accessFrameAccess = Frame.allocLocal (levelFrame lvl) escape
     }
+
+data Exp
+  = Ex T.Exp
+  | Nx T.Stm
+  | Cx (Temp.Label -> Temp.Label -> T.Stm)
+
+unEx :: (MonadSym m) => Exp -> m T.Exp
+unEx (Ex e) = pure e
+unEx (Nx stm) = pure $ T.ESeq stm $ T.Const 0
+unEx (Cx mkStm) = do
+  r <- Temp.newTemp
+  t <- Temp.newLabel
+  f <- Temp.newLabel
+  pure $
+    T.ESeq
+      ( T.seq
+          [ T.Move (T.Temp r) 1,
+            mkStm t f,
+            T.Label f,
+            T.Move (T.Temp r) 0,
+            T.Label t
+          ]
+      )
+      (T.Temp r)
+
+unNx :: (MonadSym m) => Exp -> m T.Stm
+unNx (Ex e) = pure $ T.Exp e
+unNx (Nx stm) = pure stm
+unNx (Cx mkStm) = do
+  done <- Temp.newLabel
+  pure $
+    T.seq
+      [ mkStm done done,
+        T.Label done
+      ]
+
+unCx :: (MonadSym m) => Exp -> m (Temp.Label -> Temp.Label -> T.Stm)
+unCx (Ex e) = pure $ T.CJump T.Eq e 1
+unCx (Nx _) = error "unCx: Nx isn't supported."
+unCx (Cx mkStm) = pure mkStm
