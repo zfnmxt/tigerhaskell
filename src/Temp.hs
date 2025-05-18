@@ -1,6 +1,8 @@
 module Temp
   ( Temp,
     newTemp,
+    namedLabel,
+    newLabel,
     Label (..),
   )
 where

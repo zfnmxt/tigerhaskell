@@ -1,24 +1,24 @@
-module TypeCheckTests (tests) where
+module SemantTests (tests) where
 
 import AST
 import Control.Monad
 import Parser
+import Semant
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified TigerTests
-import TypeCheck
 import qualified Types
 
-typeCheckTest' :: String -> Maybe Types.Ty -> TestTree
-typeCheckTest' s mt = typeCheckTest s s mt
+semantTest' :: String -> Maybe Types.Ty -> TestTree
+semantTest' s mt = semantTest s s mt
 
-typeCheckTest :: String -> String -> Maybe Types.Ty -> TestTree
-typeCheckTest n s mt =
+semantTest :: String -> String -> Maybe Types.Ty -> TestTree
+semantTest n s mt =
   testCase n $
     case parse "" s of
       Left err -> assertFailure err
       Right e ->
-        case checkProg e of
+        case transProg e of
           Left err' -> assertFailure $ show err'
           Right (_ ::: ty) ->
             case mt of
@@ -28,13 +28,13 @@ typeCheckTest n s mt =
 tests :: TestTree
 tests =
   testGroup
-    "typeCheck"
+    "semant"
     [ testGroup
         "simple"
-        [ typeCheckTest' "1" $ Just Types.Int,
-          typeCheckTest' "1 + 2" $ Just Types.Int,
-          typeCheckTest' "let var x := 5 in x end" $ Just Types.Int,
-          typeCheckTest'
+        [ semantTest' "1" $ Just Types.Int,
+          semantTest' "1 + 2" $ Just Types.Int,
+          semantTest' "let var x := 5 in x end" $ Just Types.Int,
+          semantTest'
             ( unwords
                 [ "let var x := 1",
                   "var x := 2",
@@ -42,7 +42,7 @@ tests =
                 ]
             )
             $ Just Types.Int,
-          typeCheckTest'
+          semantTest'
             ( unwords
                 [ "let var x := 1",
                   "var x := \"hello\"",
@@ -50,8 +50,8 @@ tests =
                 ]
             )
             $ Just Types.String,
-          typeCheckTest' "let type t = int in 0 end" $ Just Types.Int,
-          typeCheckTest' "let type list = {hd: int, tail: list} in 0 end" $ Just Types.Int
+          semantTest' "let type t = int in 0 end" $ Just Types.Int,
+          semantTest' "let type list = {hd: int, tail: list} in 0 end" $ Just Types.Int
         ],
       testCaseSteps "tiger valid testcases" $ \step -> do
         tests <- TigerTests.validTestCases
@@ -60,7 +60,7 @@ tests =
           case parse f s of
             Left err -> assertFailure err
             Right e ->
-              case checkProg e of
+              case transProg e of
                 Left err' -> assertFailure $ show err'
                 Right {} -> pure (),
       testCaseSteps "tiger error testcases" $ \step -> do
@@ -70,7 +70,7 @@ tests =
           case parse f s of
             Left err -> assertFailure err
             Right e ->
-              case checkProg e of
+              case transProg e of
                 Left err' -> pure ()
                 Right {} -> assertFailure "expected failure"
     ]

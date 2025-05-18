@@ -8,6 +8,7 @@ module Translate
     newLevel,
     formals,
     allocLocal,
+    Escape,
   )
 where
 

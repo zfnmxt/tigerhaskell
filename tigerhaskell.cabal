@@ -23,7 +23,6 @@ library
           Parser
           Symbol
           Types
-          TypeCheck
           Semant
           Env
           Translate
