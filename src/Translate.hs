@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Translate
   ( Level (..),
@@ -22,12 +23,23 @@ data Level f = Level
   { levelNum :: Int,
     levelFrame :: f
   }
-  deriving (Show, Eq, Ord)
+
+deriving instance (Show f) => Show (Level f)
+
+deriving instance (Eq f) => Eq (Level f)
+
+deriving instance (Ord f) => Ord (Level f)
 
 data Access f = Access
   { accessLevel :: Level f,
     accessFrameAccess :: Frame.Access f
   }
+
+deriving instance (Show f, Show (Frame.Access f)) => Show (Access f)
+
+deriving instance (Eq f, Eq (Frame.Access f)) => Eq (Access f)
+
+deriving instance (Ord f, Ord (Frame.Access f)) => Ord (Access f)
 
 outermost :: (Frame f) => Level f
 outermost =
