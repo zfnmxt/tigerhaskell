@@ -51,13 +51,6 @@ deriving instance (Eq frame, Eq (EnvEntry frame)) => Eq (Env frame)
 
 deriving instance (Ord frame, Ord (EnvEntry frame)) => Ord (Env frame)
 
--- instance Semigroup (Env frame) where
---   Env vEnv1 tEnv1 sEnv1 <> Env vEnv2 tEnv2 sEnv2 =
---     Env (vEnv1 <> vEnv2) (tEnv1 <> tEnv2) (sEnv1 <> sEnv2)
-
--- instance Monoid (Env frame) where
---   mempty = Env mempty mempty mempty
-
 initEnv :: (Frame frame) => Env frame
 initEnv =
   Env
