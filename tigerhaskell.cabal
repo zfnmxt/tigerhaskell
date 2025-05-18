@@ -28,6 +28,7 @@ library
           Translate
           Temp
           Frame
+          Tree
 
         build-depends:
           base,

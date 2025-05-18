@@ -27,7 +27,6 @@ import Frame (Frame, X86)
 import Symbol
 import Temp qualified
 import Translate qualified
-import TypeCheck
 import Types
 
 type Var = AST.Var Symbol
