@@ -105,6 +105,8 @@ unNx (Cx mkStm) = do
       ]
 
 unCx :: (MonadSym m) => Exp -> m (Temp.Label -> Temp.Label -> T.Stm)
-unCx (Ex e) = pure $ T.CJump T.Eq e 1
+unCx (Ex 0) = pure $ \_ f -> T.Jump (T.Name f) [f]
+unCx (Ex 1) = pure $ \t _ -> T.Jump (T.Name t) [t]
+unCx (Ex e) = pure $ T.CJump T.NE e 0
 unCx (Nx _) = error "unCx: Nx isn't supported."
 unCx (Cx mkStm) = pure mkStm
