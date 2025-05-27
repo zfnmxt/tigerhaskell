@@ -15,9 +15,12 @@ module Translate
     fieldAccess,
     subscriptAccess,
     constant,
+    nil,
+    opExp,
   )
 where
 
+import AST (Oper (..))
 import Data.Proxy
 import Frame
   ( Escape,
@@ -148,3 +151,26 @@ subscriptAccess array offset size = do
 
 constant :: Integer -> Exp
 constant = Ex . T.Const
+
+nil :: Exp
+nil = Ex $ T.Const 0
+
+opExp :: (MonadSym m) => Exp -> Oper -> Exp -> m Exp
+opExp l op r = do
+  l' <- unEx l
+  r' <- unEx r
+  case transOp of
+    Left op' -> pure $ Ex $ T.BinOp op' l' r'
+    Right op' -> pure $ Cx $ T.CJump op' l' r'
+  where
+    transOp = case op of
+      PlusOp -> Left T.Plus
+      MinusOp -> Left T.Minus
+      TimesOp -> Left T.Mul
+      DivideOp -> Left T.Div
+      EqOp -> Right T.Eq
+      NeqOp -> Right T.NE
+      LtOp -> Right T.LT
+      LeOp -> Right T.LE
+      GtOp -> Right T.GT
+      GeOp -> Right T.GE

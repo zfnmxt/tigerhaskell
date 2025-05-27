@@ -213,8 +213,8 @@ transExp ::
 transExp (VarExp v) = do
   (v' ::: v_ty, v_tree) <- transVar v
   pure (VarExp v' ::: v_ty, v_tree)
-transExp NilExp = pure $ NilExp ::: Nil
-transExp (IntExp i pos) = pure $ IntExp i pos ::: Int
+transExp NilExp = pure (NilExp ::: Nil, Translate.nil)
+transExp (IntExp i pos) = pure (IntExp i pos ::: Int, Translate.constant i)
 transExp (StringExp s pos) = pure $ StringExp s pos ::: String
 transExp (CallExp f args pos) = do
   f' <- lookupSym' f $ Just pos
@@ -233,17 +233,18 @@ transExp (CallExp f args pos) = do
   void $ zipWithM (compatTypes pos) (map typeOf args') pts
   pure $ CallExp f' (map deannotate args') pos ::: rt
 transExp (OpExp l op r pos) = do
-  lt@(l' ::: l_ty) <- transExp l
-  rt@(r' ::: r_ty) <- transExp r
+  lt@(l' ::: l_ty, l_tree) <- transExp l
+  rt@(r' ::: r_ty, r_tree) <- transExp r
+  exp_tree <- Translate.opExp l op r
   case op of
     _
       | op `elem` [PlusOp, MinusOp, TimesOp, DivideOp] -> do
           check lt [Int] pos
           check rt [Int] pos
-          pure $ OpExp l' op r' pos ::: Int
+          pure (OpExp l' op r' pos ::: Int, exp_tree)
       | otherwise -> do
           compatTypes pos l_ty r_ty
-          pure $ OpExp l' op r' pos ::: Int
+          pure (OpExp l' op r' pos ::: Int, exp_tree)
   where
     check :: (a ::: Ty) -> [Ty] -> SourcePos -> TransM frame Ty
     check a tys pos
