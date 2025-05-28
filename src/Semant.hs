@@ -128,11 +128,11 @@ lookupVar sym pos = do
     Just (VarEntry frame ty) -> pure (frame, ty)
     _ -> throwError $ Undefined (symName sym) pos
 
-lookupFun :: forall frame. (Frame frame) => Symbol -> Maybe SourcePos -> TransM frame ([Ty], Ty)
+lookupFun :: forall frame. (Frame frame) => Symbol -> Maybe SourcePos -> TransM frame (Translate.Level frame, Temp.Label, [Ty], Ty)
 lookupFun sym pos = do
   (mentry :: Maybe (EnvEntry frame)) <- askSym sym
   case mentry of
-    Just (FunEntry _ _ pts rt) -> pure (pts, rt)
+    Just (FunEntry f_lvl f_l pts rt) -> pure (f_lvl, f_l, pts, rt)
     _ -> throwError $ Undefined (symName sym) pos
 
 lookupTy :: (Frame frame) => Symbol -> Maybe SourcePos -> TransM frame Ty
@@ -215,11 +215,13 @@ transExp (VarExp v) = do
   pure (VarExp v' ::: v_ty, v_tree)
 transExp NilExp = pure (NilExp ::: Nil, Translate.nil)
 transExp (IntExp i pos) = pure (IntExp i pos ::: Int, Translate.constant i)
-transExp (StringExp s pos) = pure $ StringExp s pos ::: String
+transExp (StringExp s pos) = do
+  s_tree <- Translate.string s
+  pure (StringExp s pos ::: String, s_tree)
 transExp (CallExp f args pos) = do
   f' <- lookupSym' f $ Just pos
-  (pts, rt) <- lookupFun f' $ Just pos
-  args' <- mapM transExp args
+  (f_lvl, f_l, pts, rt) <- lookupFun f' $ Just pos
+  (args', arg_trees) <- unzip <$> mapM transExp args
   unless (length pts == length args)
     $ throwError
     $ Error
@@ -231,11 +233,13 @@ transExp (CallExp f args pos) = do
       )
     $ Just pos
   void $ zipWithM (compatTypes pos) (map typeOf args') pts
-  pure $ CallExp f' (map deannotate args') pos ::: rt
+  lvl <- asks envLevel
+  call_tree <- Translate.call lvl f_lvl f_l arg_trees
+  pure (CallExp f' (map deannotate args') pos ::: rt, call_tree)
 transExp (OpExp l op r pos) = do
-  lt@(l' ::: l_ty, l_tree) <- transExp l
-  rt@(r' ::: r_ty, r_tree) <- transExp r
-  exp_tree <- Translate.opExp l op r
+  (lt@(l' ::: l_ty), l_tree) <- transExp l
+  (rt@(r' ::: r_ty), r_tree) <- transExp r
+  exp_tree <- Translate.opExp l_tree op r_tree
   case op of
     _
       | op `elem` [PlusOp, MinusOp, TimesOp, DivideOp] -> do

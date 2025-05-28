@@ -17,6 +17,8 @@ module Translate
     constant,
     nil,
     opExp,
+    string,
+    call,
   )
 where
 
@@ -133,7 +135,7 @@ simpleVar access lvl =
       | accessLevel access' == lvl' = T.Temp (Frame.fP (Proxy @frame))
       | otherwise =
           case levelParent lvl' of
-            Nothing -> error "simpleVar: no parent."
+            Nothing -> error "stackFrame: no parent."
             Just parent ->
               stackFrame access' parent
                 + T.Mem (Frame.staticLink (levelFrame lvl'))
@@ -174,3 +176,24 @@ opExp l op r = do
       LeOp -> Right T.LE
       GtOp -> Right T.GT
       GeOp -> Right T.GE
+
+string :: (MonadSym m) => String -> m Exp
+string s = do
+  l <- Temp.newLabel
+  -- TODO: Fragments
+  pure $ Ex $ T.Name l
+
+call :: forall frame m. (Frame frame, MonadSym m) => Level frame -> Level frame -> Temp.Label -> [Exp] -> m Exp
+call lvl f_lvl l args = do
+  args' <- mapM unEx args
+  let sl = staticLink lvl
+  pure $ Ex $ T.Call (T.Name l) (sl : args')
+  where
+    staticLink lvl'
+      | f_lvl == lvl' = T.Temp (Frame.fP (Proxy @frame))
+      | otherwise =
+          case levelParent lvl' of
+            Nothing -> error "stackLink: no parent."
+            Just parent ->
+              staticLink parent
+                + T.Mem (Frame.staticLink (levelFrame lvl'))

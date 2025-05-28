@@ -4,6 +4,7 @@
 module Frame
   ( Escape,
     Frame (..),
+    Frag (..),
     X86,
   )
 where
@@ -13,6 +14,10 @@ import Temp qualified
 import Tree
 
 type Escape = Bool
+
+data Frag frame
+  = Proc Tree.Stm frame
+  | String Temp.Label String
 
 class Frame frame where
   data Access frame :: *
