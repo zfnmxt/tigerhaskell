@@ -29,6 +29,7 @@ class Frame frame where
   wordSize :: Proxy frame -> Integer
   exp :: Access frame -> Tree.Exp -> Tree.Exp
   staticLink :: frame -> Tree.Exp
+  externalCall :: Proxy frame -> String -> [Tree.Exp] -> Tree.Exp
 
 data X86
 

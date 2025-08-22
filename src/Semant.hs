@@ -260,17 +260,22 @@ transExp (RecordExp t fields pos) = do
   case recordFields t of
     Nothing -> throwError $ InvalidType t S.empty pos
     Just t_fields -> do
-      fields' <- forM (zip t_fields fields) $
-        \((_, f_ty), (field, e, f_pos)) -> do
-          field_sym <- lookupSym' field $ Just f_pos
-          mf_ty' <- unpack f_ty
-          case mf_ty' of
-            Nothing -> throwError $ Undefined (show f_ty) $ Just f_pos
-            Just f_ty' -> do
-              e' ::: e_ty <- transExp e
-              compatTypes pos e_ty f_ty'
-              pure (field_sym, e', pos)
-      pure $ RecordExp t_sym fields' pos ::: t
+      (fields', field_trees) <-
+        unzip
+          <$> forM
+            (zip t_fields fields)
+            ( \((_, f_ty), (field, e, f_pos)) -> do
+                field_sym <- lookupSym' field $ Just f_pos
+                mf_ty' <- unpack f_ty
+                case mf_ty' of
+                  Nothing -> throwError $ Undefined (show f_ty) $ Just f_pos
+                  Just f_ty' -> do
+                    (e' ::: e_ty, e_tree) <- transExp e
+                    compatTypes pos e_ty f_ty'
+                    pure ((field_sym, e', pos), e_tree)
+            )
+      rec_tree <- Translate.record field_trees
+      pure (RecordExp t_sym fields' pos ::: t, rec_tree)
 transExp (SeqExp es) = do
   es' <- mapM (transExp . fst) es
   let t =

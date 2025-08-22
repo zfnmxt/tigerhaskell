@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -19,6 +20,8 @@ module Translate
     opExp,
     string,
     call,
+    malloc,
+    record,
   )
 where
 
@@ -197,3 +200,14 @@ call lvl f_lvl l args = do
             Just parent ->
               staticLink parent
                 + T.Mem (Frame.staticLink (levelFrame lvl'))
+
+malloc :: forall frame m. (Frame frame, MonadSym m) => Exp -> m Exp
+malloc size = do
+  size' <- unEx size
+  pure $ Ex $ Frame.externalCall (Proxy @frame) "malloc" [size']
+
+record :: forall frame m. (Frame frame, MonadSym m) => [Exp] -> m Exp
+record fields = do
+  fields' <- mapM unNx fields
+  r <- unEx =<< (malloc @frame) (Ex $ fromInteger $ fromIntegral $ length fields)
+  pure $ Ex $ T.ESeq (T.seq fields') r
