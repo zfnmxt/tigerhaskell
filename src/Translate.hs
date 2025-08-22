@@ -22,6 +22,8 @@ module Translate
     call,
     malloc,
     record,
+    seqExp,
+    assign,
   )
 where
 
@@ -211,3 +213,13 @@ record fields = do
   fields' <- mapM unNx fields
   r <- unEx =<< (malloc @frame) (Ex $ fromInteger $ fromIntegral $ length fields)
   pure $ Ex $ T.ESeq (T.seq fields') r
+
+seqExp :: forall m. (MonadSym m) => [Exp] -> m Exp
+seqExp = fmap Ex . seqExp'
+  where
+    seqExp' :: [Exp] -> m T.Exp
+    seqExp' [] = pure 0
+    seqExp' [e] = unEx e
+    seqExp' (e : es) = do
+      e' <- unNx e
+      T.ESeq e' <$> seqExp' es

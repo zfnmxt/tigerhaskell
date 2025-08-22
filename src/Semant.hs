@@ -277,15 +277,18 @@ transExp (RecordExp t fields pos) = do
       rec_tree <- Translate.record field_trees
       pure (RecordExp t_sym fields' pos ::: t, rec_tree)
 transExp (SeqExp es) = do
-  es' <- mapM (transExp . fst) es
+  (es', e_trees) <- unzip <$> mapM (transExp . fst) es
   let t =
         case es' of
           [] -> Unit
           _ -> typeOf $ last es'
-  pure $
-    SeqExp
-      (zipWith (\(_, pos) (e' ::: _) -> (e', pos)) es es')
-      ::: t
+  es_tree <- Translate.seqExp e_trees
+  pure
+    ( SeqExp
+        (zipWith (\(_, pos) (e' ::: _) -> (e', pos)) es es')
+        ::: t,
+      es_tree
+    )
 transExp (AssignExp v e pos) = do
   v' ::: v_t <- transVar v
   e' ::: e_t <- transExp e
