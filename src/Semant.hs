@@ -44,7 +44,8 @@ data Env frame = Env
   { envVal :: SymTable (EnvEntry frame),
     envTy :: SymTable Ty,
     envSym :: Map String Symbol,
-    envLevel :: Translate.Level frame
+    envLevel :: Translate.Level frame,
+    envBreakLabel :: Maybe Temp.Label
   }
 
 deriving instance (Show frame, Show (EnvEntry frame)) => Show (Env frame)
@@ -59,7 +60,8 @@ initEnv =
     { envVal = val_tys,
       envTy = ty_tys,
       envSym = val_syms <> ty_syms,
-      envLevel = Translate.outermost
+      envLevel = Translate.outermost,
+      envBreakLabel = Nothing
     }
   where
     ((val_syms, val_tys), (ty_syms, ty_tys)) = prelude
@@ -161,6 +163,11 @@ withSym s m = do
     Nothing -> do
       sym <- newSym s
       local (\env -> env {envSym = M.insert s sym $ envSym env}) $ m sym
+
+withBreak :: (Frame frame) => (Temp.Label -> TransM frame a) -> TransM frame a
+withBreak m = do
+  done_label <- Temp.newLabel
+  local (\env -> env {envBreakLabel = Just done_label}) $ m done_label
 
 transProg :: UntypedExp -> Either Error (Exp ::: Ty, Translate.Exp)
 transProg e = fst $ (evalRWS $ runExceptT $ runTransM $ (transExp @X86) e) initEnv preludeTag
@@ -311,13 +318,14 @@ transExp (IfExp c t mf pos) = do
       pure $ (Just f', Just f_tree)
   cond_tree <- Translate.conditional c_tree t_tree mf_tree
   pure (IfExp c' t' mf' pos ::: t_t, cond_tree)
-transExp (WhileExp c b pos) = do
-  (c' ::: c_t, c_tree) <- transExp c
-  compatTypes pos c_t Int
-  (b' ::: b_t, b_tree) <- transExp b
-  compatTypes pos b_t Unit
-  while_tree <- Translate.while c_tree b_tree
-  pure (WhileExp c' b' pos ::: b_t, while_tree)
+transExp (WhileExp c b pos) =
+  withBreak $ \done_label -> do
+    (c' ::: c_t, c_tree) <- transExp c
+    compatTypes pos c_t Int
+    (b' ::: b_t, b_tree) <- transExp b
+    compatTypes pos b_t Unit
+    while_tree <- Translate.while done_label c_tree b_tree
+    pure (WhileExp c' b' pos ::: b_t, while_tree)
 transExp (ForExp i from to b pos) = do
   (from' ::: from_t, _) <- transExp from
   compatTypes pos from_t Int
@@ -371,7 +379,9 @@ transExp (ForExp i from to b pos) = do
             noSrcPos
         )
         noSrcPos
-transExp (BreakExp pos) = pure $ BreakExp pos ::: Unit
+transExp (BreakExp pos) = do
+  break_tree <- Translate.break <$> asks envBreakLabel
+  pure (BreakExp pos ::: Unit, break_tree)
 transExp (LetExp decs e pos) = do
   (decs', e' ::: t) <- transDecs decs $ \decs' ->
     (decs',) <$> transExp e

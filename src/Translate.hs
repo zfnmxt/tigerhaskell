@@ -16,6 +16,7 @@ module Translate
     fieldAccess,
     subscriptAccess,
     constant,
+    nothing,
     nil,
     opExp,
     string,
@@ -26,6 +27,7 @@ module Translate
     assign,
     conditional,
     while,
+    break,
   )
 where
 
@@ -41,6 +43,7 @@ import Symbol
 import Temp (Label, Temp)
 import Temp qualified
 import Tree qualified as T
+import Prelude hiding (break)
 
 data Level f = Level
   { levelNum :: Integer,
@@ -163,6 +166,9 @@ subscriptAccess array offset size = do
 constant :: Integer -> Exp
 constant = Ex . T.Const
 
+nothing :: Exp
+nothing = Nx $ T.Exp $ T.Const 0
+
 nil :: Exp
 nil = Ex $ T.Const 0
 
@@ -283,20 +289,23 @@ conditional :: (MonadSym m) => Exp -> Exp -> Maybe Exp -> m Exp
 conditional c t Nothing = ifCond c t
 conditional c t (Just f) = ifElseCond c t f
 
-while :: (MonadSym m) => Exp -> Exp -> m Exp
-while c b = do
+while :: (MonadSym m) => Label -> Exp -> Exp -> m Exp
+while done_label c b = do
   c' <- unCx c
   b' <- unNx b
   test_label <- Temp.newLabel
   body_label <- Temp.newLabel
-  end_label <- Temp.newLabel
   pure $
     Nx $
       T.seq
         [ T.Label test_label,
-          c' body_label end_label,
+          c' body_label done_label,
           T.Label body_label,
           b',
           T.Jump (T.Name test_label) [test_label],
-          T.Label end_label
+          T.Label done_label
         ]
+
+break :: Maybe Label -> Exp
+break Nothing = nothing
+break (Just break_label) = Nx $ T.Jump (T.Name break_label) [break_label]
