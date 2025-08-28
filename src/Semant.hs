@@ -383,9 +383,13 @@ transExp (BreakExp pos) = do
   break_tree <- Translate.break <$> asks envBreakLabel
   pure (BreakExp pos ::: Unit, break_tree)
 transExp (LetExp decs e pos) = do
-  (decs', e' ::: t) <- transDecs decs $ \decs' ->
-    (decs',) <$> transExp e
-  pure $ LetExp decs' e' pos ::: t
+  (decs', dec_trees, e' ::: t, e_tree) <-
+    transDecs decs $ \decs_initTrees -> do
+      let (decs', dec_trees) = unzip decs_initTrees
+      (e' ::: t, e_tree) <- transExp e
+      pure (decs', dec_trees, e' ::: t, e_tree)
+  let_tree <- Translate.letExp dec_trees e_tree
+  pure $ (LetExp decs' e' pos ::: t, let_tree)
 transExp (ArrayExp t n e pos) = do
   t_sym <- lookupSym' t $ Just pos
   t' <- lookupTy t_sym $ Just pos
@@ -399,19 +403,23 @@ transExp (ArrayExp t n e pos) = do
       compatTypes pos e_t elem_t
       pure $ ArrayExp t_sym n' e' pos ::: t'
 
-transDecs :: (Frame frame) => [UntypedDec] -> ([Dec] -> TransM frame a) -> TransM frame a
+transDecs ::
+  (Frame frame) =>
+  [UntypedDec] ->
+  ([(Dec, Translate.Exp)] -> TransM frame a) ->
+  TransM frame a
 transDecs ds m = transDecs' ds []
   where
     transDecs' [] ds' = m $ reverse ds'
     transDecs' (d : ds) ds' =
-      transDec d $ \d' ->
+      transDec d $ \(d', _) ->
         transDecs' ds (d' : ds')
 
 transDec ::
   forall frame a.
   (Frame frame) =>
   UntypedDec ->
-  (Dec -> TransM frame a) ->
+  ((Dec, Translate.Exp) -> TransM frame a) ->
   TransM frame a
 transDec (FunctionDec decs) m =
   withHeaders decs
@@ -462,7 +470,7 @@ transDec (FunctionDec decs) m =
             insertSym field' (VarEntry access ty) $
               withParams' fs (AST.Field field' ty_sym pos ::: ty : fs')
 transDec (VarDec s mty e pos) m = do
-  e' ::: e_ty <- transExp e
+  (e' ::: e_ty, e_tree) <- transExp e
   mtyt <- case mty of
     Nothing -> do
       when (e_ty == Nil) $
@@ -477,10 +485,12 @@ transDec (VarDec s mty e pos) m = do
       pure $ Just (ty_sym, ty_pos)
   withSym s $ \sym -> do
     access <- allocLocal True
+    lvl <- asks envLevel
+    init_tree <- Translate.initialize access lvl e_tree
     insertSym
       sym
       (VarEntry access e_ty)
-      (m $ VarDec sym mtyt e' pos)
+      (m (VarDec sym mtyt e' pos, init_tree))
 transDec (TypeDec decs) m =
   withHeaders decs
   where

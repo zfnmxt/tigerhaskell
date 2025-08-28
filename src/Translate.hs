@@ -28,6 +28,8 @@ module Translate
     conditional,
     while,
     break,
+    initialize,
+    letExp,
   )
 where
 
@@ -309,3 +311,21 @@ while done_label c b = do
 break :: Maybe Label -> Exp
 break Nothing = nothing
 break (Just break_label) = Nx $ T.Jump (T.Name break_label) [break_label]
+
+initialize ::
+  forall m frame.
+  (Frame frame, MonadSym m) =>
+  Access frame ->
+  Level frame ->
+  Exp ->
+  m Exp
+initialize access lvl e = do
+  e' <- unEx e
+  var_loc <- unEx $ simpleVar access lvl
+  pure $ Nx $ T.Move var_loc e'
+
+letExp :: (MonadSym m) => [Exp] -> Exp -> m Exp
+letExp decs e = do
+  decs' <- T.seq <$> mapM unNx decs
+  e' <- unEx e
+  pure $ Ex $ T.ESeq decs' e'
