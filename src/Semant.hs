@@ -26,6 +26,7 @@ import Data.Set qualified as S
 import Env
 import Frame (Frame, X86)
 import Frame qualified
+import Parser (noSrcPos)
 import Symbol
 import Temp qualified
 import Translate qualified
@@ -151,6 +152,7 @@ lookupTyNoUnpack sym pos = do
     Nothing -> throwError $ Undefined (symName sym) pos
     Just ty -> pure ty
 
+-- This should just overwrite the sym, right?
 withSym :: (Frame frame) => String -> (Symbol -> TransM frame a) -> TransM frame a
 withSym s m = do
   mname <- (M.!? s) <$> asks envSym
@@ -310,20 +312,65 @@ transExp (IfExp c t mf pos) = do
   cond_tree <- Translate.conditional c_tree t_tree mf_tree
   pure (IfExp c' t' mf' pos ::: t_t, cond_tree)
 transExp (WhileExp c b pos) = do
-  c' ::: c_t <- transExp c
+  (c' ::: c_t, c_tree) <- transExp c
   compatTypes pos c_t Int
-  b' ::: b_t <- transExp b
+  (b' ::: b_t, b_tree) <- transExp b
   compatTypes pos b_t Unit
-  pure $ WhileExp c' b' pos ::: b_t
+  while_tree <- Translate.while c_tree b_tree
+  pure (WhileExp c' b' pos ::: b_t, while_tree)
 transExp (ForExp i from to b pos) = do
-  from' ::: from_t <- transExp from
+  (from' ::: from_t, _) <- transExp from
   compatTypes pos from_t Int
-  to' ::: to_t <- transExp to
+  (to' ::: to_t, _) <- transExp to
   compatTypes pos to_t Int
   withSym i $ \i_sym -> do
     access <- allocLocal True
-    b' ::: b_t <- insertSym i_sym (VarEntry access Int) $ transExp b
-    pure $ ForExp i_sym from' to' b' pos ::: b_t
+    (b' ::: b_t, _) <- insertSym i_sym (VarEntry access Int) $ transExp b
+    (_, for_tree) <- transExp whileExp
+    pure (ForExp i_sym from' to' b' pos ::: b_t, for_tree)
+  where
+    whileExp =
+      LetExp
+        [ VarDec "i" Nothing from noSrcPos,
+          VarDec "to" Nothing to noSrcPos
+        ]
+        ( WhileExp
+            ( OpExp
+                (VarExp (SimpleVar "i" noSrcPos))
+                LeOp
+                (VarExp (SimpleVar "to" noSrcPos))
+                noSrcPos
+            )
+            ( SeqExp
+                [ (b, noSrcPos),
+                  ( IfExp
+                      ( OpExp
+                          (VarExp (SimpleVar "i" noSrcPos))
+                          GtOp
+                          (VarExp (SimpleVar "to" noSrcPos))
+                          noSrcPos
+                      )
+                      (BreakExp noSrcPos)
+                      Nothing
+                      noSrcPos,
+                    noSrcPos
+                  ),
+                  ( AssignExp
+                      (SimpleVar "i" noSrcPos)
+                      ( OpExp
+                          (VarExp (SimpleVar "i" noSrcPos))
+                          PlusOp
+                          (IntExp 1 noSrcPos)
+                          noSrcPos
+                      )
+                      noSrcPos,
+                    noSrcPos
+                  )
+                ]
+            )
+            noSrcPos
+        )
+        noSrcPos
 transExp (BreakExp pos) = pure $ BreakExp pos ::: Unit
 transExp (LetExp decs e pos) = do
   (decs', e' ::: t) <- transDecs decs $ \decs' ->

@@ -1,4 +1,8 @@
-module Parser (parse) where
+module Parser
+  ( parse,
+    noSrcPos,
+  )
+where
 
 import AST
 import Control.Monad (void, when)

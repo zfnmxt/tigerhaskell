@@ -25,6 +25,7 @@ module Translate
     seqExp,
     assign,
     conditional,
+    while,
   )
 where
 
@@ -281,3 +282,21 @@ ifElseCond c t f = do
 conditional :: (MonadSym m) => Exp -> Exp -> Maybe Exp -> m Exp
 conditional c t Nothing = ifCond c t
 conditional c t (Just f) = ifElseCond c t f
+
+while :: (MonadSym m) => Exp -> Exp -> m Exp
+while c b = do
+  c' <- unCx c
+  b' <- unNx b
+  test_label <- Temp.newLabel
+  body_label <- Temp.newLabel
+  end_label <- Temp.newLabel
+  pure $
+    Nx $
+      T.seq
+        [ T.Label test_label,
+          c' body_label end_label,
+          T.Label body_label,
+          b',
+          T.Jump (T.Name test_label) [test_label],
+          T.Label end_label
+        ]
