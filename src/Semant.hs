@@ -290,23 +290,25 @@ transExp (SeqExp es) = do
       es_tree
     )
 transExp (AssignExp v e pos) = do
-  v' ::: v_t <- transVar v
-  e' ::: e_t <- transExp e
+  (v' ::: v_t, v_tree) <- transVar v
+  (e' ::: e_t, e_tree) <- transExp e
   compatTypes pos e_t v_t
-  pure $ AssignExp v' e' pos ::: Unit
+  assign_tree <- Translate.assign v_tree e_tree
+  pure (AssignExp v' e' pos ::: Unit, assign_tree)
 transExp (IfExp c t mf pos) = do
-  c' ::: c_t <- transExp c
+  (c' ::: c_t, c_tree) <- transExp c
   compatTypes pos c_t Int
-  t' ::: t_t <- transExp t
-  mf' <- case mf of
+  (t' ::: t_t, t_tree) <- transExp t
+  (mf', mf_tree) <- case mf of
     Nothing -> do
       compatTypes pos t_t Unit
-      pure Nothing
+      pure (Nothing, Nothing)
     Just f -> do
-      f' ::: f_t <- transExp f
+      (f' ::: f_t, f_tree) <- transExp f
       compatTypes pos t_t f_t
-      pure $ Just f'
-  pure $ IfExp c' t' mf' pos ::: t_t
+      pure $ (Just f', Just f_tree)
+  cond_tree <- Translate.conditional c_tree t_tree mf_tree
+  pure (IfExp c' t' mf' pos ::: t_t, cond_tree)
 transExp (WhileExp c b pos) = do
   c' ::: c_t <- transExp c
   compatTypes pos c_t Int

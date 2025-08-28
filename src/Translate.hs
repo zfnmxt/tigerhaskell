@@ -24,10 +24,12 @@ module Translate
     record,
     seqExp,
     assign,
+    conditional,
   )
 where
 
 import AST (Oper (..))
+import Data.Maybe
 import Data.Proxy
 import Frame
   ( Escape,
@@ -35,6 +37,7 @@ import Frame
   )
 import Frame qualified
 import Symbol
+import Temp (Label, Temp)
 import Temp qualified
 import Tree qualified as T
 
@@ -223,3 +226,58 @@ seqExp = fmap Ex . seqExp'
     seqExp' (e : es) = do
       e' <- unNx e
       T.ESeq e' <$> seqExp' es
+
+assign :: forall m. (MonadSym m) => Exp -> Exp -> m Exp
+assign v e = Nx <$> (T.Move <$> unEx v <*> unEx e)
+
+ifCond :: forall m. (MonadSym m) => Exp -> Exp -> m Exp
+ifCond c t = do
+  c' <- unCx c
+  t_stm <- unNx t
+  t_label <- Temp.newLabel
+  end_label <- Temp.newLabel
+  pure $
+    Nx $
+      T.seq
+        [ c' t_label end_label,
+          T.Label t_label,
+          t_stm,
+          T.Label end_label
+        ]
+
+ifElseCond :: forall m. (MonadSym m) => Exp -> Exp -> Exp -> m Exp
+ifElseCond c t f = do
+  c' <- unCx c
+  r <- Temp.newTemp
+  t_label <- Temp.newLabel
+  f_label <- Temp.newLabel
+  end_label <- Temp.newLabel
+  t' <- convertBody Nothing (Just f_label) r t
+  f' <- convertBody Nothing Nothing r f
+  pure $
+    Ex $
+      T.ESeq
+        ( T.seq
+            [ c' t_label f_label,
+              T.Label t_label,
+              t',
+              T.Jump (T.Name end_label) [end_label],
+              T.Label f_label,
+              f',
+              T.Label end_label
+            ]
+        )
+        (T.Temp r)
+  where
+    convertBody :: Maybe Label -> Maybe Label -> Temp -> Exp -> m T.Stm
+    convertBody mt_label mf_label r (Cx b) = do
+      t_label <- fromMaybe Temp.newLabel (pure <$> mt_label)
+      f_label <- fromMaybe Temp.newLabel (pure <$> mf_label)
+      pure $ b t_label f_label
+    convertBody _ _ r b = do
+      b' <- unEx b
+      pure $ T.Move (T.Temp r) b'
+
+conditional :: (MonadSym m) => Exp -> Exp -> Maybe Exp -> m Exp
+conditional c t Nothing = ifCond c t
+conditional c t (Just f) = ifElseCond c t f
