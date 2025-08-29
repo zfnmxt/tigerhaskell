@@ -30,6 +30,8 @@ class Frame frame where
   exp :: Access frame -> Tree.Exp -> Tree.Exp
   staticLink :: frame -> Tree.Exp
   externalCall :: Proxy frame -> String -> [Tree.Exp] -> Tree.Exp
+  rV :: Proxy frame -> Temp.Temp
+  procEntryExit1 :: frame -> Tree.Stm -> Tree.Stm
 
 data X86
 

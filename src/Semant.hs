@@ -283,7 +283,7 @@ transExp (RecordExp t fields pos) = do
                     compatTypes pos e_ty f_ty'
                     pure ((field_sym, e', pos), e_tree)
             )
-      rec_tree <- Translate.record field_trees
+      rec_tree <- (Translate.record @X86) field_trees
       pure (RecordExp t_sym fields' pos ::: t, rec_tree)
 transExp (SeqExp es) = do
   (es', e_trees) <- unzip <$> mapM (transExp . fst) es
@@ -401,7 +401,7 @@ transExp (ArrayExp t n e pos) = do
       compatTypes pos n_t Int
       (e' ::: e_t, e_tree) <- transExp e
       compatTypes pos e_t elem_t
-      arr_tree <- Translate.array n_tree e_tree
+      arr_tree <- (Translate.array @X86) n_tree e_tree
       pure (ArrayExp t_sym n' e' pos ::: t', arr_tree)
 
 transDecs ::
@@ -413,7 +413,7 @@ transDecs ds m = transDecs' ds []
   where
     transDecs' [] ds' = m $ reverse ds'
     transDecs' (d : ds) ds' =
-      transDec d $ \(d', _) ->
+      transDec d $ \d' ->
         transDecs' ds (d' : ds')
 
 transDec ::
@@ -425,7 +425,10 @@ transDec ::
 transDec (FunctionDec decs) m =
   withHeaders decs
   where
-    withHeaders [] = m =<< FunctionDec <$> mapM transFunDec decs
+    withHeaders [] = do
+      (decs, fun_trees) <- unzip <$> mapM transFunDec decs
+      fun_tree <- Translate.functions fun_trees
+      m (FunctionDec decs, fun_tree)
     withHeaders (AST.FunDec f params mrt body pos : ds) = do
       params' <- withParams params pure
       body_ty <-
@@ -443,8 +446,8 @@ transDec (FunctionDec decs) m =
 
     transFunDec (AST.FunDec f params mrt body pos) = do
       f' <- lookupSym' f $ Just pos
-      (pts, rt) <- lookupFun f' $ Just pos
-      (params', body' ::: body_ty) <-
+      (lvl, label, pts, rt) <- lookupFun f' $ Just pos
+      (params', (body' ::: body_ty, body_tree)) <-
         withParams params $ \params' -> (params',) <$> transExp body
       compatTypes pos body_ty rt
       mrt' <-
@@ -453,7 +456,8 @@ transDec (FunctionDec decs) m =
           Just (rt_s, pos) -> do
             rt_sym <- lookupSym' rt_s $ Just pos
             pure $ Just (rt_sym, pos)
-      pure $ AST.FunDec f' (map deannotate params') mrt' body' pos
+      fun_tree <- Translate.function label lvl body_tree
+      pure (AST.FunDec f' (map deannotate params') mrt' body' pos, fun_tree)
 
     withParams ::
       forall a.
@@ -502,7 +506,8 @@ transDec (TypeDec decs) m =
 
     transTypeDecs [] ds' = do
       transTyTable
-      m $ TypeDec $ reverse ds'
+      -- gross, fix
+      m (TypeDec $ reverse ds', Translate.nothing)
     transTypeDecs ((s, sty, pos) : ds) ds' = do
       sym <- lookupSym' s $ Just pos
       transTy sty $ \(sty' ::: ty) ->

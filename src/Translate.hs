@@ -31,6 +31,8 @@ module Translate
     break,
     initialize,
     letExp,
+    function,
+    functions,
   )
 where
 
@@ -340,3 +342,27 @@ letExp decs e = do
   decs' <- T.seq <$> mapM unNx decs
   e' <- unEx e
   pure $ Ex $ T.ESeq decs' e'
+
+function :: forall m frame. (Frame frame, MonadSym m) => Label -> Level frame -> Exp -> m Exp
+function label lvl body = do
+  body' <- unEx body
+  pure $
+    Nx $
+      T.seq
+        [ prologue,
+          epilogue body'
+        ]
+  where
+    prologue =
+      T.seq
+        [ Frame.procEntryExit1 (levelFrame lvl) (T.Exp 0)
+        ]
+    epilogue body' =
+      T.seq
+        [ T.Move (T.Temp $ Frame.rV (Proxy @frame)) body'
+        ]
+
+functions :: (MonadSym m) => [Exp] -> m Exp
+functions decs = do
+  decs' <- mapM unNx decs
+  pure $ Nx $ T.seq decs'
