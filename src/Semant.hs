@@ -397,11 +397,12 @@ transExp (ArrayExp t n e pos) = do
     Nothing ->
       throwError $ InvalidType t' S.empty pos
     Just elem_t -> do
-      n' ::: n_t <- transExp n
+      (n' ::: n_t, n_tree) <- transExp n
       compatTypes pos n_t Int
-      e' ::: e_t <- transExp e
+      (e' ::: e_t, e_tree) <- transExp e
       compatTypes pos e_t elem_t
-      pure $ ArrayExp t_sym n' e' pos ::: t'
+      arr_tree <- Translate.array n_tree e_tree
+      pure (ArrayExp t_sym n' e' pos ::: t', arr_tree)
 
 transDecs ::
   (Frame frame) =>

@@ -22,6 +22,7 @@ module Translate
     string,
     call,
     malloc,
+    array,
     record,
     seqExp,
     assign,
@@ -219,6 +220,16 @@ malloc :: forall frame m. (Frame frame, MonadSym m) => Exp -> m Exp
 malloc size = do
   size' <- unEx size
   pure $ Ex $ Frame.externalCall (Proxy @frame) "malloc" [size']
+
+array :: forall frame m. (Frame frame, MonadSym m) => Exp -> Exp -> m Exp
+array n e = do
+  n' <- unEx n
+  let size =
+        Ex $
+          T.BinOp T.Mul n' (fromInteger $ Frame.wordSize (Proxy @frame))
+  arr <- unEx =<< (malloc @frame) size
+  e' <- unEx e
+  pure $ Ex $ Frame.externalCall (Proxy @frame) "initArray" [arr, e']
 
 record :: forall frame m. (Frame frame, MonadSym m) => [Exp] -> m Exp
 record fields = do
