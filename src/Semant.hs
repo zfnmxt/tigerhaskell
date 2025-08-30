@@ -172,8 +172,10 @@ withBreak m = do
   done_label <- Temp.newLabel
   local (\env -> env {envBreakLabel = Just done_label}) $ m done_label
 
-transProg :: UntypedExp -> Either Error (Exp ::: Ty, Translate.Exp)
-transProg e = fst $ (evalRWS $ runExceptT $ runTransM $ (transExp @X86) e) initEnv preludeTag
+transProg :: forall frame. (Frame frame) => UntypedExp -> Either Error (Exp ::: Ty, [Frame.Frag frame])
+transProg e =
+  let (mexp, frags) = (evalRWS $ runExceptT $ runTransM $ transExp e) initEnv preludeTag
+   in ((,frags) . fst) <$> mexp
 
 transVar ::
   forall frame.
