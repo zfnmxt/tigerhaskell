@@ -32,6 +32,7 @@ class Frame frame where
   externalCall :: Proxy frame -> String -> [Tree.Exp] -> Tree.Exp
   rV :: Proxy frame -> Temp.Temp
   procEntryExit1 :: frame -> Tree.Stm -> Tree.Stm
+  string :: Proxy frame -> Temp.Label -> String -> Frag frame
 
 data X86
 

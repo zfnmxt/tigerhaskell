@@ -72,13 +72,13 @@ data Error
   | Error String (Maybe SourcePos)
   deriving (Show, Eq)
 
-newtype TransM frame a = TransM {runTransM :: ExceptT Error (RWS (Env frame) () Tag) a}
+newtype TransM frame a = TransM {runTransM :: ExceptT Error (RWS (Env frame) [Frame.Frag frame] Tag) a}
   deriving
     ( Functor,
       Applicative,
       Monad,
       MonadReader (Env frame),
-      MonadWriter (),
+      MonadWriter [Frame.Frag frame],
       MonadState Tag,
       MonadError Error
     )
@@ -154,6 +154,9 @@ lookupTyNoUnpack sym pos = do
     Nothing -> throwError $ Undefined (symName sym) pos
     Just ty -> pure ty
 
+emitFrag :: (Frame frame) => Frame.Frag frame -> TransM frame ()
+emitFrag = tell . pure
+
 -- This should just overwrite the sym, right?
 withSym :: (Frame frame) => String -> (Symbol -> TransM frame a) -> TransM frame a
 withSym s m = do
@@ -225,7 +228,8 @@ transExp (VarExp v) = do
 transExp NilExp = pure (NilExp ::: Nil, Translate.nil)
 transExp (IntExp i pos) = pure (IntExp i pos ::: Int, Translate.constant i)
 transExp (StringExp s pos) = do
-  s_tree <- Translate.string s
+  (s_frag, s_tree) <- Translate.string s
+  emitFrag s_frag
   pure (StringExp s pos ::: String, s_tree)
 transExp (CallExp f args pos) = do
   f' <- lookupSym' f $ Just pos
@@ -426,9 +430,8 @@ transDec (FunctionDec decs) m =
   withHeaders decs
   where
     withHeaders [] = do
-      (decs, fun_trees) <- unzip <$> mapM transFunDec decs
-      fun_tree <- Translate.functions fun_trees
-      m (FunctionDec decs, fun_tree)
+      decs <- mapM transFunDec decs
+      m (FunctionDec decs, Translate.nothing)
     withHeaders (AST.FunDec f params mrt body pos : ds) = do
       params' <- withParams params pure
       body_ty <-
@@ -456,8 +459,8 @@ transDec (FunctionDec decs) m =
           Just (rt_s, pos) -> do
             rt_sym <- lookupSym' rt_s $ Just pos
             pure $ Just (rt_sym, pos)
-      fun_tree <- Translate.function label lvl body_tree
-      pure (AST.FunDec f' (map deannotate params') mrt' body' pos, fun_tree)
+      Translate.function label lvl body_tree
+      pure $ AST.FunDec f' (map deannotate params') mrt' body' pos
 
     withParams ::
       forall a.

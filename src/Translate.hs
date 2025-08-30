@@ -32,11 +32,14 @@ module Translate
     initialize,
     letExp,
     function,
-    functions,
+    --   functions,
+    --   procEntryExit,
+    --   withResult,
   )
 where
 
 import AST (Oper (..))
+import Control.Monad.RWS
 import Data.Maybe
 import Data.Proxy
 import Frame
@@ -197,11 +200,11 @@ opExp l op r = do
       GtOp -> Right T.GT
       GeOp -> Right T.GE
 
-string :: (MonadSym m) => String -> m Exp
+string :: forall frame m. (Frame frame, MonadSym m) => String -> m (Frame.Frag frame, Exp)
 string s = do
   l <- Temp.newLabel
-  -- TODO: Fragments
-  pure $ Ex $ T.Name l
+  let frag = Frame.string (Proxy @frame) l s
+  pure (frag, Ex $ T.Name l)
 
 call :: forall frame m. (Frame frame, MonadSym m) => Level frame -> Level frame -> Temp.Label -> [Exp] -> m Exp
 call lvl f_lvl l args = do
@@ -343,15 +346,24 @@ letExp decs e = do
   e' <- unEx e
   pure $ Ex $ T.ESeq decs' e'
 
-function :: forall m frame. (Frame frame, MonadSym m) => Label -> Level frame -> Exp -> m Exp
+function ::
+  forall m frame.
+  ( Frame frame,
+    MonadSym m,
+    MonadWriter [Frame.Frag frame] m
+  ) =>
+  Label ->
+  Level frame ->
+  Exp ->
+  m ()
 function label lvl body = do
   body' <- unEx body
-  pure $
-    Nx $
-      T.seq
-        [ prologue,
-          epilogue body'
-        ]
+  let stms =
+        T.seq
+          [ prologue,
+            epilogue body'
+          ]
+  tell [Frame.Proc stms (levelFrame lvl)]
   where
     prologue =
       T.seq
@@ -362,7 +374,23 @@ function label lvl body = do
         [ T.Move (T.Temp $ Frame.rV (Proxy @frame)) body'
         ]
 
-functions :: (MonadSym m) => [Exp] -> m Exp
-functions decs = do
-  decs' <- mapM unNx decs
-  pure $ Nx $ T.seq decs'
+-- functions :: (MonadSym m) => [Exp] -> m Exp
+-- functions decs = do
+--  decs' <- mapM unNx decs
+--  pure $ Nx $ T.seq decs'
+
+-- procEntryExit ::
+--  forall frame m.
+--  ( Frame frame,
+--    MonadSym m,
+--    MonadWriter [Frame.Frag frame] m
+--  ) =>
+--  Level frame ->
+--  Exp ->
+--  m ()
+-- procEntryExit lvl body = do
+--  body' <- unNx body
+--  tell [Frag.Proc body' (levelFrame lvl)]
+--
+-- withResult :: forall frame m. (Frame frame, MonadSym m) => m [Frame.Frag frame]
+-- withResult = undefined
